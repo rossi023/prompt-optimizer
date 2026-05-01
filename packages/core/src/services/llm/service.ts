@@ -191,7 +191,7 @@ export class LLMService implements ILLMService {
   /**
    * 测试连接
    */
-  async testConnection(provider: string): Promise<void> {
+   async testConnection(provider: string): Promise<void> {
     try {
       if (!provider) {
         throw new RequestConfigError('Model provider cannot be empty');
@@ -218,8 +218,32 @@ export class LLMService implements ILLMService {
       // Send directly through the adapter to avoid the normal "enabled" constraint.
       const adapter = this.registry.getAdapter(modelConfig.providerMeta.id);
       const runtimeConfig = this.prepareRuntimeConfig(modelConfig);
-      await adapter.sendMessage(testMessages, runtimeConfig);
-
+      
+      try {
+        await adapter.sendMessage(testMessages, runtimeConfig);
+      } catch (adapterError: any) {
+        // 增强错误信息，帮助诊断连接问题
+        const baseURL = modelConfig.connectionConfig.baseURL || 'default OpenAI endpoint';
+        const errorMsg = adapterError?.message || String(adapterError);
+        
+        if (errorMsg.includes('Failed to fetch') || errorMsg.includes('NetworkError')) {
+          if (typeof window !== 'undefined') {
+            throw new APIError(`Connection failed: Cannot reach ${baseURL} from browser. This is likely a CORS issue. Use Electron app or ensure the API supports CORS.`);
+          }
+          throw new APIError(`Connection failed: Cannot reach ${baseURL}. Please check the URL, network, or proxy settings.`);
+        }
+        
+        if (errorMsg.includes('401') || errorMsg.includes('Unauthorized')) {
+          throw new APIError(`Authentication failed: Invalid API key for ${baseURL}. Please check your API key.`);
+        }
+        
+        if (errorMsg.includes('timeout') || errorMsg.includes('ETIMEDOUT')) {
+          throw new APIError(`Connection timeout: ${baseURL} took too long to respond. Try increasing the timeout or check your network/proxy.`);
+        }
+        
+        // 原样抛出适配器错误（已包含详细信息）
+        throw adapterError;
+      }
     } catch (error: any) {
       if (error instanceof RequestConfigError || error instanceof APIError) {
         throw error;

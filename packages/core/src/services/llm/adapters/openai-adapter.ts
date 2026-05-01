@@ -857,9 +857,64 @@ export class OpenAIAdapter extends AbstractTextProviderAdapter {
     try {
       const response: any = await openai.chat.completions.create(completionConfig)
       return await this.parseCompletionResponse(response, config.modelMeta.id)
-    } catch (error) {
+    } catch (error: any) {
+      const errorMsg = error?.message || String(error)
+
+      // 检测 SSE 格式解析错误（某些 API 即使非流式也返回 SSE）
+      const isSSEParseError = errorMsg.includes('Unexpected token') && errorMsg.includes('data:')
+
+      // 如果是 SSE 解析错误且当前不是流式请求，尝试改用流式
+      if (isSSEParseError && !completionConfig.stream) {
+        console.warn('[OpenAIAdapter] Detected SSE response for non-streaming request, retrying with stream:true')
+        try {
+          const streamConfig = { ...completionConfig, stream: true }
+          const stream = await openai.chat.completions.create(streamConfig)
+          let accumulatedContent = ''
+          let accumulatedReasoning = ''
+          for await (const chunk of stream as any) {
+            const content = chunk.choices?.[0]?.delta?.content || ''
+            if (content) accumulatedContent += content
+            const reasoning = chunk.choices?.[0]?.delta?.reasoning_content || ''
+            if (reasoning) accumulatedReasoning += reasoning
+          }
+          return {
+            content: accumulatedContent,
+            reasoning: accumulatedReasoning || undefined,
+            metadata: { model: config.modelMeta.id }
+          }
+        } catch (streamError: any) {
+          console.error('[OpenAIAdapter] Stream retry also failed:', streamError)
+          // 重试失败，继续处理原始错误
+        }
+      }
+
       console.error('[OpenAIAdapter] API call failed:', error)
-      throw error // 保留原始错误堆栈，不包装
+
+      // 明确错误类型，提供更友好的错误信息
+      const errorStatus = error?.status || error?.response?.status
+
+      if (errorMsg.includes('Failed to fetch') || errorMsg.includes('NetworkError')) {
+        if (typeof window !== 'undefined' && config.connectionConfig.baseURL) {
+          throw new APIError(`Network error: Unable to connect to ${config.connectionConfig.baseURL}. This may be caused by CORS policy in browser. Consider using Electron app or ensure the API supports CORS.`)
+        }
+        throw new APIError(`Network error: Unable to connect to the API. Please check your network and baseURL.`)
+      }
+
+      if (errorStatus === 401 || errorMsg.includes('Unauthorized') || errorMsg.includes('API key')) {
+        throw new APIError(`Authentication failed: Invalid API key or unauthorized access. Please check your API key.`)
+      }
+
+      if (errorMsg.includes('timeout') || errorMsg.includes('ETIMEDOUT')) {
+        throw new APIError(`Request timeout: The API took too long to respond. Try increasing the timeout or check your network.`)
+      }
+
+      // SSE 解析错误特殊处理
+      if (isSSEParseError) {
+        throw new APIError(`API returned Server-Sent Events (SSE) format but streaming was not enabled. The API may not support non-streaming requests. Try enabling streaming or use a different API endpoint.`)
+      }
+
+      // 保留原始错误堆栈，但包装为APIError
+      throw new APIError(`API call failed: ${errorMsg}`)
     }
   }
 

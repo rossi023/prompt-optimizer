@@ -81,99 +81,24 @@
             circle
             size="small"
             class="aux-icon-button"
-            :title="$t('updater.viewOnGitHub')"
-            @click="emit('open-github')"
+            :title="$t('nav.about')"
         >
             <template #icon>
                 <svg
                     class="w-4 h-4"
                     viewBox="0 0 24 24"
-                    fill="currentColor"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
                 >
-                    <path
-                        d="M12 0C5.374 0 0 5.373 0 12 0 17.302 3.438 21.8 8.207 23.387c.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"
-                    />
+                    <circle cx="12" cy="12" r="9" />
+                    <path d="M12 10v6" />
+                    <path d="M12 7.25h.01" />
                 </svg>
             </template>
         </NButton>
-        <NPopover
-            v-model:show="showAboutPopover"
-            trigger="click"
-            placement="bottom-end"
-            :show-arrow="false"
-        >
-            <template #trigger>
-                <NButton
-                    quaternary
-                    circle
-                    size="small"
-                    class="aux-icon-button"
-                    :title="$t('nav.about')"
-                >
-                    <template #icon>
-                        <svg
-                            class="w-4 h-4"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                        >
-                            <circle cx="12" cy="12" r="9" />
-                            <path d="M12 10v6" />
-                            <path d="M12 7.25h.01" />
-                        </svg>
-                    </template>
-                </NButton>
-            </template>
-
-            <div class="about-panel">
-                <div class="about-panel-header">
-                    <NTag round size="small" class="about-version-tag">{{ appVersion }}</NTag>
-                </div>
-
-                <NButton quaternary block class="about-link-button" @click="handleOpenWebsite">
-                    <span class="about-link-copy">
-                        <span class="about-link-label">{{ $t('about.website') }}</span>
-                        <span class="about-link-value">{{ $t('about.websiteLabel') }}</span>
-                    </span>
-                    <svg
-                        class="about-link-icon"
-                        viewBox="0 0 16 16"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.7"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        aria-hidden="true"
-                    >
-                        <path d="M6 4h6v6" />
-                        <path d="M12 4 4.75 11.25" />
-                    </svg>
-                </NButton>
-
-                <NButton quaternary block class="about-link-button" @click="handleOpenDocs">
-                    <span class="about-link-copy">
-                        <span class="about-link-label">{{ $t('about.documentation') }}</span>
-                        <span class="about-link-value">{{ $t('about.documentationLabel') }}</span>
-                    </span>
-                    <svg
-                        class="about-link-icon"
-                        viewBox="0 0 16 16"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.7"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        aria-hidden="true"
-                    >
-                        <path d="M6 4h6v6" />
-                        <path d="M12 4 4.75 11.25" />
-                    </svg>
-                </NButton>
-            </div>
-        </NPopover>
         <LanguageSwitchDropdown />
         <!-- 自动更新组件 - 仅在Electron环境中显示 -->
         <UpdaterIcon />
@@ -216,7 +141,7 @@ import ActionButtonUI from '../ActionButton.vue'
 import ThemeToggleUI from '../ThemeToggleUI.vue'
 import LanguageSwitchDropdown from '../LanguageSwitchDropdown.vue'
 import UpdaterIcon from '../UpdaterIcon.vue'
-import { NButton, NPopover, NTag } from 'naive-ui'
+import { NButton, NTag } from 'naive-ui'
 
 interface Props {
     appVersion: string
@@ -232,36 +157,18 @@ withDefaults(defineProps<Props>(), {
 // ========================
 const emit = defineEmits<{
     /** 打开模板管理器 */
-    'open-templates': []
+    'open-templates': [],
     /** 打开历史记录 */
-    'open-history': []
+    'open-history': [],
     /** 打开模型管理器 */
-    'open-model-manager': []
+    'open-model-manager': [],
     /** 打开收藏夹 */
-    'open-favorites': []
+    'open-favorites': [],
     /** 打开数据管理器 */
-    'open-data-manager': []
+    'open-data-manager': [],
     /** 打开变量管理器 */
     'open-variables': []
-    /** 打开官网 */
-    'open-website': []
-    /** 打开文档站 */
-    'open-docs': []
-    /** 打开 GitHub 仓库 */
-    'open-github': []
 }>()
-
-const showAboutPopover = ref(false)
-
-const handleOpenWebsite = () => {
-    showAboutPopover.value = false
-    emit('open-website')
-}
-
-const handleOpenDocs = () => {
-    showAboutPopover.value = false
-    emit('open-docs')
-}
 </script>
 
 <style scoped>
@@ -294,66 +201,13 @@ const handleOpenDocs = () => {
     gap: 8px;
 }
 
-.page-destination-group {
-    padding-right: 8px;
-    border-right: 1px solid var(--border-color, rgba(239, 239, 245, 0.72));
-}
-
 .page-destination-active {
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-color, #18a058) 18%, transparent);
 }
 
-.about-panel {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    min-width: 220px;
-    max-width: 260px;
-}
-
-.about-panel-header {
-    display: flex;
-    justify-content: flex-end;
-}
-
-.about-version-tag {
-    max-width: 100%;
-}
-
-.about-link-button {
-    width: 100%;
-    justify-content: space-between;
-    gap: 12px;
-}
-
-.about-link-copy {
+.brand-title {
     display: inline-flex;
-    align-items: baseline;
-    gap: 8px;
-    min-width: 0;
-    text-align: left;
-}
-
-.about-link-label {
-    flex-shrink: 0;
-    font-size: 11px;
-    color: var(--text-color-3);
-}
-
-.about-link-value {
-    min-width: 0;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--text-color-2);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.about-link-icon {
-    width: 12px;
-    height: 12px;
-    flex-shrink: 0;
-    color: var(--text-color-3);
+    align-items: center;
+    padding: 6px 10px 6px 6px;
 }
 </style>

@@ -13,13 +13,8 @@
         <NFlex justify="space-between" align="center" class="w-full nav-content" :wrap="false" :size="[16, 12]">
           <!-- 左侧：Logo + 标题 + 核心导航 -->
           <NFlex align="center" :size="16" :wrap="false">
-            <!-- Logo + 标题 -->
-            <button
-              type="button"
-              class="brand-link"
-              @click="openBrandWebsite"
-            >
-              <NFlex align="center" :size="8" :wrap="false">
+            <!-- Logo + 标题（静态，无跳转链接） -->
+            <NFlex align="center" :size="8" :wrap="false" class="brand-title">
                 <AppPreviewImage
                   :src="logoSrc"
                   alt="Logo"
@@ -34,8 +29,7 @@
                 <NText class="text-lg sm:text-xl font-bold theme-title" tag="h2">
                   <slot name="title">{{ t('common.appName') }}</slot>
                 </NText>
-              </NFlex>
-            </button>
+            </NFlex>
 
             <!-- 核心导航元素 -->
             <div class="core-navigation">
@@ -123,23 +117,6 @@ const logoSize = computed(() => {
   }
   return 28 // 默认尺寸
 })
-
-const openBrandWebsite = async () => {
-  const url = 'https://always200.com'
-
-  if (typeof window !== 'undefined' && window.electronAPI?.shell) {
-    try {
-      await window.electronAPI.shell.openExternal(url)
-      return
-    } catch (error) {
-      console.error('Failed to open brand website in Electron:', error)
-    }
-  }
-
-  if (typeof window !== 'undefined') {
-    window.open(url, '_blank')
-  }
-}
 </script>
 
 <style>
@@ -159,7 +136,7 @@ const openBrandWebsite = async () => {
   min-height: 0;
 }
 
-/* 增强导航栏样式 */
+ /* 增强导航栏样式 */
 .nav-header-enhanced {
   min-height: 64px !important;
   padding: 12px 16px !important;
@@ -173,38 +150,10 @@ const openBrandWebsite = async () => {
   min-height: 40px;
 }
 
-.brand-link {
+.brand-title {
   display: inline-flex;
   align-items: center;
   padding: 6px 10px 6px 6px;
-  border: 0;
-  border-radius: 12px;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-  transition:
-    background-color 0.2s ease-in-out,
-    box-shadow 0.2s ease-in-out,
-    transform 0.2s ease-in-out;
-}
-
-.brand-link:hover {
-  background: color-mix(in srgb, var(--primary-color, #18a058) 10%, transparent);
-  transform: translateY(-1px);
-}
-
-.brand-link:hover .logo-image {
-  transform: scale(1.05);
-}
-
-.brand-link:hover .theme-title {
-  opacity: 0.88;
-}
-
-.brand-link:focus-visible {
-  outline: none;
-  background: color-mix(in srgb, var(--primary-color, #18a058) 14%, transparent);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-color, #18a058) 28%, transparent);
 }
 
 /* Logo样式优化 */
