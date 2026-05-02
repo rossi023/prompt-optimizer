@@ -80,7 +80,7 @@ This is a pure frontend project with all data stored locally in your browser and
 
 ### 2. Vercel Deployment
 Method 1: One-click deployment to your own Vercel:
-   [![Deploy with Vercel](https://vercel.com/button)](https://github.com/rossi023/prompt-optimizer)
+   [![Deploy with Vercel](https://vercel.com/button)]( https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Frossi023%2Fprompt-optimizer)
 
 Method 2: Fork the project and import to Vercel (Recommended):
    - First fork the project to your GitHub account
