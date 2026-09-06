@@ -4,6 +4,8 @@ import type {
   IImageStorageService,
 } from '@prompt-optimizer/core'
 
+import { collectFavoriteAssetIds } from './favorite-asset-refs'
+
 type FavoriteManagerForGc = Pick<
   IFavoriteManager,
   'getFavorites' | 'getFavorite' | 'updateFavorite' | 'deleteFavorite' | 'deleteFavorites' | 'importFavorites'
@@ -13,74 +15,6 @@ type FavoriteManagerForGc = Pick<
 type FavoriteAssetGcResult = {
   deletedIds: string[]
   referencedIds: string[]
-}
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  !!value && typeof value === 'object' && !Array.isArray(value)
-
-const collectStringArray = (value: unknown): string[] => {
-  if (!Array.isArray(value)) return []
-  return value
-    .map((item) => (typeof item === 'string' ? item.trim() : ''))
-    .filter(Boolean)
-}
-
-const collectFavoriteAssetIds = (
-  favorite: FavoritePrompt | null | undefined,
-): Set<string> => {
-  const assetIds = new Set<string>()
-  if (!favorite || !isRecord(favorite.metadata)) {
-    return assetIds
-  }
-
-  const media = isRecord(favorite.metadata.media) ? favorite.metadata.media : null
-  if (media) {
-    const coverAssetId = typeof media.coverAssetId === 'string' ? media.coverAssetId.trim() : ''
-    if (coverAssetId) {
-      assetIds.add(coverAssetId)
-    }
-
-    collectStringArray(media.assetIds).forEach((id) => assetIds.add(id))
-  }
-
-  const gardenSnapshot = isRecord(favorite.metadata.gardenSnapshot)
-    ? favorite.metadata.gardenSnapshot
-    : null
-
-  const collectFromExampleItems = (items: unknown) => {
-    if (!Array.isArray(items)) return
-
-    items.forEach((item) => {
-      if (!isRecord(item)) return
-
-      collectStringArray(item.imageAssetIds).forEach((id) => assetIds.add(id))
-      collectStringArray(item.inputImageAssetIds).forEach((id) => assetIds.add(id))
-    })
-  }
-
-  if (gardenSnapshot && isRecord(gardenSnapshot.assets)) {
-    const cover = isRecord(gardenSnapshot.assets.cover) ? gardenSnapshot.assets.cover : null
-    if (cover) {
-      const coverAssetId = typeof cover.assetId === 'string' ? cover.assetId.trim() : ''
-      if (coverAssetId) {
-        assetIds.add(coverAssetId)
-      }
-    }
-
-    collectFromExampleItems(gardenSnapshot.assets.showcases)
-    collectFromExampleItems(gardenSnapshot.assets.examples)
-  }
-
-  const reproducibility = isRecord(favorite.metadata.reproducibility)
-    ? favorite.metadata.reproducibility
-    : null
-  if (reproducibility) {
-    collectFromExampleItems(reproducibility.examples)
-  }
-
-  collectFromExampleItems(favorite.metadata.examples)
-
-  return assetIds
 }
 
 const setsAreEqual = (left: Set<string>, right: Set<string>): boolean => {

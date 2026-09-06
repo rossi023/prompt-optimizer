@@ -1,4 +1,4 @@
-import { IModelManager, ModelConfig, TextModelConfig } from './types';
+import { IModelManager, ModelConfig, TextModel, TextModelConfig, TextProvider } from './types';
 import { IStorageProvider } from '../storage/types';
 import { StorageAdapter } from '../storage/adapter';
 import { getAllModels, getBuiltinModelIds } from './defaults';
@@ -15,6 +15,12 @@ import {
   isTextModelConfig
 } from './converter';
 import type { ITextAdapterRegistry } from '../llm/types';
+import {
+  getTextModelConfigIdentity,
+  hasExplicitTextModelIdentity,
+  hasTextModelMetadataIdentityMismatch,
+  resolveTextModelMetadata
+} from './metadata-resolver';
 
 /**
  * 模型管理器实现
@@ -109,8 +115,19 @@ export class ModelManager implements IModelManager {
 
               if (isTextModelConfig(existingModel)) {
                 // 已经是新格式，保留用户配置，仅在缺失关键字段时补齐默认值
-                let updatedModel = { ...existingModel } as TextModelConfig;
+                const copiedExistingModel = { ...existingModel } as TextModelConfig;
+                let updatedModel = this.patchBuiltinModelUpgrade(
+                  key,
+                  copiedExistingModel,
+                  defaultConfig
+                );
                 let patched = false;
+
+                if (updatedModel !== copiedExistingModel) {
+                  updatedModels[key] = updatedModel;
+                  hasUpdates = true;
+                  console.log(`[ModelManager] Migrated legacy builtin model: ${key}`);
+                }
 
                 if (!updatedModel.providerMeta && defaultConfig.providerMeta) {
                   updatedModel.providerMeta = defaultConfig.providerMeta;
@@ -234,6 +251,53 @@ export class ModelManager implements IModelManager {
     }
   }
 
+  private patchBuiltinModelUpgrade(
+    key: string,
+    config: TextModelConfig,
+    defaultConfig: TextModelConfig
+  ): TextModelConfig {
+    const legacyDefaultIds: Record<string, readonly string[]> = {
+      openai: ['gpt-5-mini'],
+      gemini: ['gemini-2.5-flash'],
+      anthropic: ['claude-opus-4-20250514', 'claude-sonnet-4-20250514'],
+      zhipu: ['glm-4.7'],
+      dashscope: ['qwen3.5-27b'],
+      grok: ['grok-4.3']
+    };
+    const currentModelId = config.modelId || config.modelMeta?.id;
+    if (!currentModelId || !legacyDefaultIds[key]?.includes(currentModelId)) {
+      return config;
+    }
+
+    const paramOverrides = {
+      ...(defaultConfig.paramOverrides || {}),
+      ...(config.paramOverrides || {})
+    } as Record<string, unknown>;
+
+    if (key === 'anthropic') {
+      delete paramOverrides.thinking_budget_tokens;
+      delete paramOverrides.temperature;
+      delete paramOverrides.top_p;
+      delete paramOverrides.top_k;
+      paramOverrides.effort = paramOverrides.effort || 'high';
+    } else if (key === 'gemini') {
+      delete paramOverrides.temperature;
+      delete paramOverrides.topP;
+      delete paramOverrides.topK;
+      delete paramOverrides.candidateCount;
+      delete paramOverrides.thinkingBudget;
+    } else if (key === 'grok' && paramOverrides.reasoning_effort === 'none') {
+      paramOverrides.reasoning_effort = 'high';
+    }
+
+    return {
+      ...config,
+      modelId: defaultConfig.modelId,
+      modelMeta: defaultConfig.modelMeta,
+      paramOverrides
+    };
+  }
+
   /**
    * 获取默认模型配置（返回TextModelConfig格式）
    * 注意：每次调用都会重新计算，确保环境变量变化能被感知
@@ -279,6 +343,296 @@ export class ModelManager implements IModelManager {
     }
   }
 
+  private isRecord(value: unknown): value is Record<string, any> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+  }
+
+  private toOptionalString(value: unknown): string | undefined {
+    return typeof value === 'string' && value.trim().length > 0 ? value : undefined
+  }
+
+  private getProviderIdFromRaw(raw: Record<string, any>): string | undefined {
+    const providerId = this.toOptionalString(raw.providerId)
+      || this.toOptionalString(raw.providerMeta?.id)
+      || this.toOptionalString(raw.modelMeta?.providerId)
+      || this.toOptionalString(raw.provider)
+
+    return providerId === 'custom' ? 'openai-compatible' : providerId
+  }
+
+  private getModelIdFromRaw(raw: Record<string, any>): string | undefined {
+    return this.toOptionalString(raw.modelId)
+      || this.toOptionalString(raw.modelMeta?.id)
+      || this.toOptionalString(raw.defaultModel)
+  }
+
+  private createDisabledPlaceholderConfig(
+    key: string,
+    rawConfig: unknown,
+    error?: unknown
+  ): TextModelConfig {
+    const raw = this.isRecord(rawConfig) ? rawConfig : {}
+    const providerId = this.getProviderIdFromRaw(raw) || 'unknown'
+    const modelId = this.toOptionalString(raw.modelId)
+      || this.toOptionalString(raw.modelMeta?.id)
+      || this.toOptionalString(raw.defaultModel)
+      || 'unknown'
+    const providerMeta = this.resolvePlaceholderProviderMeta(providerId, raw.providerMeta)
+    const modelMeta = this.resolvePlaceholderModelMeta(providerId, modelId, raw.modelMeta)
+    const connectionConfig = this.isRecord(raw.connectionConfig)
+      ? { ...raw.connectionConfig }
+      : {
+          ...(this.toOptionalString(raw.apiKey) ? { apiKey: raw.apiKey } : {}),
+          ...(this.toOptionalString(raw.baseURL) ? { baseURL: raw.baseURL } : {})
+        }
+    const paramOverrides = this.isRecord(raw.paramOverrides)
+      ? { ...raw.paramOverrides }
+      : this.isRecord(raw.llmParams)
+        ? { ...raw.llmParams }
+        : {}
+
+    console.warn(
+      `[ModelManager] Failed to normalize model config ${key}, returning disabled placeholder:`,
+      error
+    )
+
+    return {
+      id: this.toOptionalString(raw.id) || key,
+      name: this.toOptionalString(raw.name) || `Invalid Model (${key})`,
+      enabled: false,
+      providerId,
+      modelId,
+      providerMeta,
+      modelMeta,
+      connectionConfig,
+      paramOverrides
+    }
+  }
+
+  private buildDefaultBackfilledConfig(
+    key: string,
+    rawConfig: unknown
+  ): TextModelConfig | null {
+    if (!this.isRecord(rawConfig)) {
+      return null
+    }
+
+    const defaultConfig = this.getDefaultModels()[key]
+    if (!defaultConfig) {
+      return null
+    }
+
+    const providerId = this.getProviderIdFromRaw(rawConfig)
+      || defaultConfig.providerId
+      || defaultConfig.providerMeta.id
+    const modelId = this.getModelIdFromRaw(rawConfig)
+      || defaultConfig.modelId
+      || defaultConfig.modelMeta.id
+    const repairedConfig = {
+      ...defaultConfig,
+      ...rawConfig,
+      id: this.toOptionalString(rawConfig.id) || defaultConfig.id,
+      name: this.toOptionalString(rawConfig.name) || defaultConfig.name,
+      enabled: typeof rawConfig.enabled === 'boolean' ? rawConfig.enabled : defaultConfig.enabled,
+      providerId,
+      modelId,
+      providerMeta: this.isRecord(rawConfig.providerMeta) && rawConfig.providerMeta.id === providerId
+        ? rawConfig.providerMeta as TextProvider
+        : defaultConfig.providerMeta,
+      modelMeta: this.isRecord(rawConfig.modelMeta) && rawConfig.modelMeta.id === modelId && rawConfig.modelMeta.providerId === providerId
+        ? rawConfig.modelMeta as TextModel
+        : defaultConfig.modelMeta,
+      connectionConfig: this.isRecord(rawConfig.connectionConfig)
+        ? { ...defaultConfig.connectionConfig, ...rawConfig.connectionConfig }
+        : { ...defaultConfig.connectionConfig },
+      paramOverrides: this.isRecord(rawConfig.paramOverrides)
+        ? { ...rawConfig.paramOverrides }
+        : defaultConfig.paramOverrides,
+      customParamOverrides: this.isRecord(rawConfig.customParamOverrides)
+        ? { ...rawConfig.customParamOverrides }
+        : defaultConfig.customParamOverrides
+    }
+
+    return this.migrateConfig(repairedConfig)
+  }
+
+  private resolvePlaceholderProviderMeta(
+    providerId: string,
+    existingProviderMeta: unknown
+  ): TextProvider {
+    if (this.isRecord(existingProviderMeta) && existingProviderMeta.id === providerId) {
+      return {
+        id: providerId,
+        name: this.toOptionalString(existingProviderMeta.name) || providerId,
+        description: this.toOptionalString(existingProviderMeta.description),
+        corsRestricted: existingProviderMeta.corsRestricted,
+        requiresApiKey: !!existingProviderMeta.requiresApiKey,
+        defaultBaseURL: this.toOptionalString(existingProviderMeta.defaultBaseURL) || '',
+        supportsDynamicModels: !!existingProviderMeta.supportsDynamicModels,
+        connectionSchema: this.isRecord(existingProviderMeta.connectionSchema)
+          ? existingProviderMeta.connectionSchema as TextProvider['connectionSchema']
+          : { required: [], optional: [], fieldTypes: {} },
+        apiKeyUrl: this.toOptionalString(existingProviderMeta.apiKeyUrl)
+      }
+    }
+
+    try {
+      return this.registry?.getAdapter(providerId).getProvider() || this.getUnknownProviderMeta(providerId)
+    } catch {
+      return this.getUnknownProviderMeta(providerId)
+    }
+  }
+
+  private resolvePlaceholderModelMeta(
+    providerId: string,
+    modelId: string,
+    existingModelMeta: unknown
+  ): TextModel {
+    if (
+      this.isRecord(existingModelMeta) &&
+      existingModelMeta.id === modelId &&
+      existingModelMeta.providerId === providerId
+    ) {
+      return {
+        id: modelId,
+        name: this.toOptionalString(existingModelMeta.name) || modelId,
+        description: this.toOptionalString(existingModelMeta.description),
+        providerId,
+        capabilities: this.isRecord(existingModelMeta.capabilities)
+          ? existingModelMeta.capabilities as TextModel['capabilities']
+          : { supportsTools: false },
+        parameterDefinitions: Array.isArray(existingModelMeta.parameterDefinitions)
+          ? existingModelMeta.parameterDefinitions
+          : [],
+        defaultParameterValues: this.isRecord(existingModelMeta.defaultParameterValues)
+          ? existingModelMeta.defaultParameterValues
+          : {}
+      }
+    }
+
+    try {
+      const adapter = this.registry?.getAdapter(providerId)
+      return adapter?.getModels().find((model) => model.id === modelId)
+        || adapter?.buildDefaultModel(modelId)
+        || this.getUnknownModelMeta(providerId, modelId)
+    } catch {
+      return this.getUnknownModelMeta(providerId, modelId)
+    }
+  }
+
+  private getUnknownProviderMeta(providerId: string): TextProvider {
+    return {
+      id: providerId,
+      name: providerId === 'unknown' ? 'Unknown Provider' : `Unknown Provider (${providerId})`,
+      description: 'This configuration could not be normalized. Please edit or delete it.',
+      requiresApiKey: false,
+      defaultBaseURL: '',
+      supportsDynamicModels: false,
+      connectionSchema: { required: [], optional: [], fieldTypes: {} }
+    }
+  }
+
+  private getUnknownModelMeta(providerId: string, modelId: string): TextModel {
+    return {
+      id: modelId,
+      name: modelId === 'unknown' ? 'Unknown Model' : `Unknown Model (${modelId})`,
+      description: 'This configuration could not be normalized. Please edit or delete it.',
+      providerId,
+      capabilities: {
+        supportsTools: false
+      },
+      parameterDefinitions: [],
+      defaultParameterValues: {}
+    }
+  }
+
+  private normalizeStoredTextModelConfig(
+    key: string,
+    rawConfig: unknown,
+    registry: ITextAdapterRegistry
+  ): TextModelConfig {
+    try {
+      let textConfig: TextModelConfig
+
+      if (isTextModelConfig(rawConfig)) {
+        textConfig = rawConfig as TextModelConfig;
+      } else if (isLegacyConfig(rawConfig)) {
+        textConfig = convertLegacyToTextModelConfig(key, rawConfig);
+      } else {
+        textConfig = convertLegacyToTextModelConfig(key, rawConfig as ModelConfig);
+      }
+
+      const migrated = this.migrateConfig(textConfig)
+      return this.normalizeTextModelConfig(
+        this.patchProviderMeta(this.patchDeepseekConfig(migrated)),
+        registry,
+        { allowLegacyMetadataMismatch: true }
+      )
+    } catch (error) {
+      const defaultBackfilledConfig = this.buildDefaultBackfilledConfig(key, rawConfig)
+      if (defaultBackfilledConfig) {
+        try {
+          return this.normalizeTextModelConfig(
+            this.patchProviderMeta(this.patchDeepseekConfig(defaultBackfilledConfig)),
+            registry,
+            { allowLegacyMetadataMismatch: true }
+          )
+        } catch (repairError) {
+          console.warn(
+            `[ModelManager] Failed to repair default model config ${key}, returning disabled placeholder:`,
+            repairError
+          )
+        }
+      }
+
+      return this.createDisabledPlaceholderConfig(key, rawConfig, error)
+    }
+  }
+
+  private normalizeTextModelConfig(
+    config: Partial<TextModelConfig> & Pick<TextModelConfig, 'id' | 'name' | 'enabled'>,
+    registry: ITextAdapterRegistry,
+    options: { allowLegacyMetadataMismatch?: boolean } = {}
+  ): TextModelConfig {
+    const identity = getTextModelConfigIdentity(config)
+
+    if (!identity) {
+      throw new ModelConfigError('Missing provider/model identity')
+    }
+
+    const hasIncomingMismatch = hasTextModelMetadataIdentityMismatch(
+      config.providerMeta,
+      config.modelMeta
+    )
+    if (
+      hasIncomingMismatch &&
+      !hasExplicitTextModelIdentity(config) &&
+      !options.allowLegacyMetadataMismatch
+    ) {
+      throw new ModelConfigError(
+        `Provider/model metadata mismatch: providerMeta.id '${config.providerMeta?.id}' does not match modelMeta.providerId '${config.modelMeta?.providerId}'`
+      )
+    }
+
+    const { providerMeta, modelMeta } = resolveTextModelMetadata({
+      providerId: identity.providerId,
+      modelId: identity.modelId,
+      registry,
+      existingProviderMeta: config.providerMeta,
+      existingModelMeta: config.modelMeta
+    })
+
+    return {
+      ...config,
+      providerId: identity.providerId,
+      modelId: identity.modelId,
+      providerMeta,
+      modelMeta,
+      connectionConfig: config.connectionConfig || {},
+      paramOverrides: config.paramOverrides
+    }
+  }
+
   /**
    * 旧存储数据里 providerMeta 可能缺少新字段；用当前 adapter 的 provider 元数据补齐。
    *
@@ -290,7 +644,7 @@ export class ModelManager implements IModelManager {
       return config
     }
 
-    const providerId = (providerMeta.id || config.modelMeta?.providerId || '').toLowerCase()
+    const providerId = (config.providerId || providerMeta.id || config.modelMeta?.providerId || '').toLowerCase()
 
     // Historical metadata might incorrectly mark Ollama as CORS-restricted.
     // Ollama can be configured (CORS/reverse-proxy), so we force-disable the tag.
@@ -335,6 +689,7 @@ export class ModelManager implements IModelManager {
 
   private isDeepseekConfig(config: TextModelConfig): boolean {
     const providerId = (
+      config.providerId ||
       config.providerMeta?.id ||
       config.modelMeta?.providerId ||
       ''
@@ -389,6 +744,8 @@ export class ModelManager implements IModelManager {
 
     return {
       ...config,
+      providerId: 'deepseek',
+      modelId: isBuiltinDeepseek ? modelMeta.id : (config.modelId || config.modelMeta?.id),
       modelMeta: isBuiltinDeepseek
         ? modelMeta
         : {
@@ -485,52 +842,11 @@ export class ModelManager implements IModelManager {
   async getAllModels(): Promise<TextModelConfig[]> {
     await this.ensureInitialized();
     const models = await this.getModelsFromStorage();
+    const registry = await this.getRegistry()
 
-    // 转换为 TextModelConfig 数组（先完成格式/字段迁移）
-    const migratedConfigs = Object.entries(models).map(([key, config]) => {
-      let textConfig: TextModelConfig
-
-      // 检查是否已经是新格式
-      if (isTextModelConfig(config)) {
-        textConfig = config as TextModelConfig;
-      }
-      // 传统格式，转换为新格式
-      else if (isLegacyConfig(config)) {
-        textConfig = convertLegacyToTextModelConfig(key, config);
-      }
-      // 未知格式，尝试转换
-      else {
-        textConfig = convertLegacyToTextModelConfig(key, config as ModelConfig);
-      }
-
-      // 读时迁移：合并 customParamOverrides 到 paramOverrides
-      return this.migrateConfig(textConfig)
-    });
-
-    const needsProviderMetaPatch = migratedConfigs.some(
-      (cfg) => cfg.providerMeta && cfg.providerMeta.corsRestricted === undefined
+    return Object.entries(models).map(([key, config]) =>
+      this.normalizeStoredTextModelConfig(key, config, registry)
     )
-
-    if (needsProviderMetaPatch) {
-      // Best-effort: ensure registry is available for patching provider metadata.
-      try {
-        await this.getRegistry()
-      } catch {
-        // ignore - registry is only used for optional metadata patching
-      }
-    }
-
-    const needsDeepseekPatch = migratedConfigs.some((cfg) => this.isDeepseekConfig(cfg))
-
-    if (needsDeepseekPatch) {
-      try {
-        await this.getRegistry()
-      } catch {
-        // ignore - registry is only used for optional DeepSeek metadata patching
-      }
-    }
-
-    return migratedConfigs.map((cfg) => this.patchProviderMeta(this.patchDeepseekConfig(cfg)))
   }
 
   /**
@@ -545,44 +861,8 @@ export class ModelManager implements IModelManager {
       return undefined;
     }
 
-    let textConfig: TextModelConfig
-
-    // 检查是否已经是新格式
-    if (isTextModelConfig(config)) {
-      textConfig = config as TextModelConfig;
-    }
-    // 传统格式，转换为新格式
-    else if (isLegacyConfig(config)) {
-      textConfig = convertLegacyToTextModelConfig(key, config);
-    }
-    // 未知格式，尝试转换
-    else {
-      textConfig = convertLegacyToTextModelConfig(key, config as ModelConfig);
-    }
-
-    // 读时迁移：合并 customParamOverrides 到 paramOverrides
-    const migrated = this.migrateConfig(textConfig)
-    const needsProviderMetaPatch =
-      !!migrated.providerMeta && migrated.providerMeta.corsRestricted === undefined
-
-    if (needsProviderMetaPatch) {
-      // Best-effort: ensure registry is available for patching provider metadata.
-      try {
-        await this.getRegistry()
-      } catch {
-        // ignore - registry is only used for optional metadata patching
-      }
-    }
-
-    if (this.isDeepseekConfig(migrated)) {
-      try {
-        await this.getRegistry()
-      } catch {
-        // ignore - registry is only used for optional DeepSeek metadata patching
-      }
-    }
-
-    return this.patchProviderMeta(this.patchDeepseekConfig(migrated))
+    const registry = await this.getRegistry()
+    return this.normalizeStoredTextModelConfig(key, config, registry)
   }
 
   /**
@@ -590,11 +870,13 @@ export class ModelManager implements IModelManager {
    */
   async addModel(key: string, config: TextModelConfig): Promise<void> {
     await this.ensureInitialized();
-    this.validateTextModelConfig(config);
+    const registry = await this.getRegistry();
+    const normalizedConfig = this.normalizeTextModelConfig(config, registry);
+    this.validateTextModelConfig(normalizedConfig);
 
     // 保存时移除 customParamOverrides（已合并到 paramOverrides）
     const toStore = {
-      ...config,
+      ...normalizedConfig,
       customParamOverrides: undefined
     }
 
@@ -621,6 +903,7 @@ export class ModelManager implements IModelManager {
    */
   async updateModel(key: string, config: Partial<TextModelConfig>): Promise<void> {
     await this.ensureInitialized();
+    const registry = await this.getRegistry();
 
     await this.storage.updateData<Record<string, any>>(
       this.storageKey,
@@ -650,10 +933,31 @@ export class ModelManager implements IModelManager {
           existingTextModelConfig = convertLegacyToTextModelConfig(key, existingConfig as ModelConfig);
         }
 
+        if (
+          !hasExplicitTextModelIdentity(config) &&
+          config.providerMeta &&
+          !config.modelMeta &&
+          hasTextModelMetadataIdentityMismatch(config.providerMeta, existingTextModelConfig.modelMeta)
+        ) {
+          throw new ModelConfigError(
+            `Provider/model metadata mismatch: providerMeta.id '${config.providerMeta.id}' does not match modelMeta.providerId '${existingTextModelConfig.modelMeta?.providerId}'`
+          );
+        }
+
         // 合并配置
         const updatedConfig: TextModelConfig = {
           ...existingTextModelConfig,
           ...config,
+          providerId: config.providerId
+            ?? config.providerMeta?.id
+            ?? config.modelMeta?.providerId
+            ?? existingTextModelConfig.providerId
+            ?? existingTextModelConfig.providerMeta?.id
+            ?? existingTextModelConfig.modelMeta?.providerId,
+          modelId: config.modelId
+            ?? config.modelMeta?.id
+            ?? existingTextModelConfig.modelId
+            ?? existingTextModelConfig.modelMeta?.id,
           // 确保 enabled 属性存在
           enabled: config.enabled !== undefined ? config.enabled : existingTextModelConfig.enabled,
           // Deep merge connectionConfig
@@ -668,21 +972,25 @@ export class ModelManager implements IModelManager {
             : existingTextModelConfig.paramOverrides || {}
         };
 
+        const normalizedConfig = this.normalizeTextModelConfig(updatedConfig, registry);
+
         // 如果更新了关键字段，需要验证配置
         if (
           config.name !== undefined ||
+          config.providerId !== undefined ||
+          config.modelId !== undefined ||
           config.providerMeta !== undefined ||
           config.modelMeta !== undefined ||
           config.connectionConfig !== undefined ||
           config.paramOverrides !== undefined ||
           config.enabled
         ) {
-          this.validateTextModelConfig(updatedConfig);
+          this.validateTextModelConfig(normalizedConfig);
         }
 
         // 保存时移除 customParamOverrides（已合并到 paramOverrides）
         const toStore = {
-          ...updatedConfig,
+          ...normalizedConfig,
           customParamOverrides: undefined
         }
 
@@ -720,6 +1028,7 @@ export class ModelManager implements IModelManager {
    */
   async enableModel(key: string): Promise<void> {
     await this.ensureInitialized();
+    const registry = await this.getRegistry();
     await this.storage.updateData<Record<string, any>>(
       this.storageKey,
       (currentModels) => {
@@ -742,6 +1051,11 @@ export class ModelManager implements IModelManager {
           textModelConfig = convertLegacyToTextModelConfig(key, existingConfig as ModelConfig);
         }
 
+        textModelConfig = this.normalizeTextModelConfig(
+          textModelConfig,
+          registry,
+          { allowLegacyMetadataMismatch: true }
+        );
         // 使用完整验证
         this.validateTextModelConfig(textModelConfig);
 
@@ -761,6 +1075,7 @@ export class ModelManager implements IModelManager {
    */
   async disableModel(key: string): Promise<void> {
     await this.ensureInitialized();
+    const registry = await this.getRegistry();
     await this.storage.updateData<Record<string, any>>(
       this.storageKey,
       (currentModels) => {
@@ -782,6 +1097,11 @@ export class ModelManager implements IModelManager {
         } else {
           textModelConfig = convertLegacyToTextModelConfig(key, existingConfig as ModelConfig);
         }
+        textModelConfig = this.normalizeTextModelConfig(
+          textModelConfig,
+          registry,
+          { allowLegacyMetadataMismatch: true }
+        );
 
         return {
           ...models,
@@ -871,6 +1191,21 @@ export class ModelManager implements IModelManager {
     }
     if (!config.modelMeta || !config.modelMeta.id) {
       errors.push('Missing or invalid model metadata (modelMeta)');
+    }
+    if (hasTextModelMetadataIdentityMismatch(config.providerMeta, config.modelMeta)) {
+      errors.push(
+        `Provider/model metadata mismatch: providerMeta.id '${config.providerMeta?.id}' does not match modelMeta.providerId '${config.modelMeta?.providerId}'`
+      );
+    }
+    if (config.providerId && config.providerMeta?.id && config.providerId !== config.providerMeta.id) {
+      errors.push(
+        `Provider identity mismatch: providerId '${config.providerId}' does not match providerMeta.id '${config.providerMeta.id}'`
+      );
+    }
+    if (config.modelId && config.modelMeta?.id && config.modelId !== config.modelMeta.id) {
+      errors.push(
+        `Model identity mismatch: modelId '${config.modelId}' does not match modelMeta.id '${config.modelMeta.id}'`
+      );
     }
     if (!config.connectionConfig) {
       errors.push('Missing connection configuration (connectionConfig)');
@@ -964,7 +1299,7 @@ export class ModelManager implements IModelManager {
         let textModelConfig: TextModelConfig;
         let key: string;
 
-        if (isTextModelConfig(model)) {
+        if (isTextModelConfig(model) || this.validateSingleTextModel(model)) {
           // 新格式：直接使用
           textModelConfig = model as TextModelConfig;
           key = textModelConfig.id;
@@ -1031,7 +1366,7 @@ export class ModelManager implements IModelManager {
 
     return data.every(item => {
       // 检查是否为新格式
-      if (isTextModelConfig(item)) {
+      if (isTextModelConfig(item) || this.validateSingleTextModel(item)) {
         return this.validateSingleTextModel(item);
       }
       // 检查是否为旧格式
@@ -1043,15 +1378,21 @@ export class ModelManager implements IModelManager {
    * 验证单个 TextModelConfig 配置
    */
   private validateSingleTextModel(item: any): boolean {
+    const hasMetadata =
+      item.providerMeta !== undefined &&
+      typeof item.providerMeta === 'object' &&
+      item.modelMeta !== undefined &&
+      typeof item.modelMeta === 'object';
+    const hasIdentity =
+      typeof item.providerId === 'string' &&
+      typeof item.modelId === 'string';
+
     return typeof item === 'object' &&
       item !== null &&
       typeof item.id === 'string' &&
       typeof item.name === 'string' &&
       typeof item.enabled === 'boolean' &&
-      item.providerMeta !== undefined &&
-      typeof item.providerMeta === 'object' &&
-      item.modelMeta !== undefined &&
-      typeof item.modelMeta === 'object' &&
+      (hasMetadata || hasIdentity) &&
       item.connectionConfig !== undefined &&
       typeof item.connectionConfig === 'object';
   }

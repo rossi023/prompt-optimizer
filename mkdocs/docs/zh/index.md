@@ -139,6 +139,50 @@ hide:
     </div>
   </section>
 
+  <section class="po-docs-section po-docs-section--auxiliary">
+    <div class="po-docs-section-head">
+      <h2>提示词资产与辅助功能</h2>
+      <p>提示词可以来自手写、模板、本地导入或 Prompt Garden 提示词库，稳定后再沉淀为收藏资产。</p>
+    </div>
+    <div class="po-docs-index-list">
+      <a class="po-docs-index-row" href="basic/prompt-garden/">
+        <div>
+          <h3>Prompt Garden 提示词库</h3>
+          <p>作为可选提示词来源，发现可导入的提示词、示例和媒体素材。</p>
+        </div>
+        <code>/basic/prompt-garden</code>
+      </a>
+      <a class="po-docs-index-row" href="basic/favorites/">
+        <div>
+          <h3>收藏与导入</h3>
+          <p>把稳定提示词保存为可复用资产，保留示例、媒体和来源信息。</p>
+        </div>
+        <code>/basic/favorites</code>
+      </a>
+      <a class="po-docs-index-row" href="auxiliary/smart-fill/">
+        <div>
+          <h3>变量智能填充</h3>
+          <p>填写核心变量，AI 自动推导其他变量。</p>
+        </div>
+        <code>/auxiliary/smart-fill</code>
+      </a>
+      <a class="po-docs-index-row" href="auxiliary/replicate/">
+        <div>
+          <h3>文生图复刻</h3>
+          <p>从参考图反推提示词和变量。</p>
+        </div>
+        <code>/auxiliary/replicate</code>
+      </a>
+      <a class="po-docs-index-row" href="auxiliary/style-learn/">
+        <div>
+          <h3>风格学习</h3>
+          <p>保留提示词主体，学习参考图风格。</p>
+        </div>
+        <code>/auxiliary/style-learn</code>
+      </a>
+    </div>
+  </section>
+
   <section class="po-docs-section po-docs-section--deep">
     <div class="po-docs-section-head">
       <h2>继续深入</h2>

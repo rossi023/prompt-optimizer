@@ -13,8 +13,13 @@
         <NFlex justify="space-between" align="center" class="w-full nav-content" :wrap="false" :size="[16, 12]">
           <!-- 左侧：Logo + 标题 + 核心导航 -->
           <NFlex align="center" :size="16" :wrap="false">
-            <!-- Logo + 标题（静态，无跳转链接） -->
-            <NFlex align="center" :size="8" :wrap="false" class="brand-title">
+            <!-- Logo + 标题 -->
+            <NButton
+              text
+              class="brand-link"
+              @click="openBrandWebsite"
+            >
+              <NFlex align="center" :size="8" :wrap="false">
                 <AppPreviewImage
                   :src="logoSrc"
                   alt="Logo"
@@ -29,7 +34,11 @@
                 <NText class="text-lg sm:text-xl font-bold theme-title" tag="h2">
                   <slot name="title">{{ t('common.appName') }}</slot>
                 </NText>
+<<<<<<< HEAD
             </NFlex>
+=======
+              </NFlex>
+            </NButton>
 
             <!-- 核心导航元素 -->
             <div class="core-navigation">
@@ -66,10 +75,11 @@
 import { computed, ref, onMounted, onUnmounted } from 'vue'
 
 import { useI18n } from 'vue-i18n'
-import { NLayout, NLayoutHeader, NLayoutContent, NFlex, NText } from 'naive-ui'
+import { NButton, NLayout, NLayoutHeader, NLayoutContent, NFlex, NText } from 'naive-ui'
 import ToastUI from './Toast.vue'
 import logoImage from '../assets/logo.png'
 import AppPreviewImage from './media/AppPreviewImage.vue'
+import { openExternalUrl } from '../utils/open-external-url'
 
 const { t } = useI18n()
 
@@ -117,6 +127,10 @@ const logoSize = computed(() => {
   }
   return 28 // 默认尺寸
 })
+
+const openBrandWebsite = async () => {
+  await openExternalUrl('https://always200.com', { logPrefix: 'MainLayout' })
+}
 </script>
 
 <style>
@@ -150,10 +164,41 @@ const logoSize = computed(() => {
   min-height: 40px;
 }
 
+<<<<<<< HEAD
 .brand-title {
   display: inline-flex;
   align-items: center;
   padding: 6px 10px 6px 6px;
+=======
+.brand-link {
+  align-items: center;
+  padding: 6px 10px 6px 6px;
+  border-radius: 12px;
+  color: inherit;
+  transition:
+    background-color 0.2s ease-in-out,
+    box-shadow 0.2s ease-in-out,
+    transform 0.2s ease-in-out;
+}
+
+.brand-link:hover {
+  background: color-mix(in srgb, var(--n-primary-color) 10%, transparent);
+  transform: translateY(-1px);
+}
+
+.brand-link:hover .logo-image {
+  transform: scale(1.05);
+}
+
+.brand-link:hover .theme-title {
+  opacity: 0.88;
+}
+
+.brand-link:focus-visible {
+  outline: none;
+  background: color-mix(in srgb, var(--n-primary-color) 14%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--n-primary-color) 28%, transparent);
+>>>>>>> upstream/develop
 }
 
 /* Logo样式优化 */
@@ -177,7 +222,7 @@ const logoSize = computed(() => {
   align-items: center;
   margin-left: 16px;
   padding-left: 16px;
-  border-left: 1px solid var(--border-color, rgba(239, 239, 245, 0.6));
+  border-left: 1px solid var(--n-border-color);
   min-height: 32px;
 }
 

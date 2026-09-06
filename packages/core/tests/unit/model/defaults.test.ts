@@ -10,6 +10,11 @@ describe('model defaults provider env mapping', () => {
   const originalCustomApiKey = process.env.VITE_CUSTOM_API_KEY
   const originalCustomApiBaseUrl = process.env.VITE_CUSTOM_API_BASE_URL
   const originalCustomApiModel = process.env.VITE_CUSTOM_API_MODEL
+  const originalCustomApiHeaders = process.env.VITE_CUSTOM_API_HEADERS
+  const originalGrokApiKey = process.env.VITE_GROK_API_KEY
+  const originalXaiApiKey = process.env.VITE_XAI_API_KEY
+  const originalMimoTokenPlanApiKey = process.env.VITE_MIMO_TOKEN_PLAN_API_KEY
+  const originalMimoTokenPlanApiBaseUrl = process.env.VITE_MIMO_TOKEN_PLAN_API_BASE_URL
 
   beforeEach(() => {
     delete process.env.VITE_ANTHROPIC_API_KEY
@@ -20,14 +25,19 @@ describe('model defaults provider env mapping', () => {
     delete process.env.VITE_CUSTOM_API_KEY
     delete process.env.VITE_CUSTOM_API_BASE_URL
     delete process.env.VITE_CUSTOM_API_MODEL
+    delete process.env.VITE_CUSTOM_API_HEADERS
+    delete process.env.VITE_GROK_API_KEY
+    delete process.env.VITE_XAI_API_KEY
+    delete process.env.VITE_MIMO_TOKEN_PLAN_API_KEY
+    delete process.env.VITE_MIMO_TOKEN_PLAN_API_BASE_URL
   })
 
   afterAll(() => {
     if (originalAnthropicApiKey === undefined) {
       delete process.env.VITE_ANTHROPIC_API_KEY
-      return
+    } else {
+      process.env.VITE_ANTHROPIC_API_KEY = originalAnthropicApiKey
     }
-    process.env.VITE_ANTHROPIC_API_KEY = originalAnthropicApiKey
 
     if (originalCloudflareApiKey === undefined) {
       delete process.env.VITE_CF_API_TOKEN
@@ -70,6 +80,36 @@ describe('model defaults provider env mapping', () => {
     } else {
       process.env.VITE_CUSTOM_API_MODEL = originalCustomApiModel
     }
+
+    if (originalCustomApiHeaders === undefined) {
+      delete process.env.VITE_CUSTOM_API_HEADERS
+    } else {
+      process.env.VITE_CUSTOM_API_HEADERS = originalCustomApiHeaders
+    }
+
+    if (originalGrokApiKey === undefined) {
+      delete process.env.VITE_GROK_API_KEY
+    } else {
+      process.env.VITE_GROK_API_KEY = originalGrokApiKey
+    }
+
+    if (originalXaiApiKey === undefined) {
+      delete process.env.VITE_XAI_API_KEY
+    } else {
+      process.env.VITE_XAI_API_KEY = originalXaiApiKey
+    }
+
+    if (originalMimoTokenPlanApiKey === undefined) {
+      delete process.env.VITE_MIMO_TOKEN_PLAN_API_KEY
+    } else {
+      process.env.VITE_MIMO_TOKEN_PLAN_API_KEY = originalMimoTokenPlanApiKey
+    }
+
+    if (originalMimoTokenPlanApiBaseUrl === undefined) {
+      delete process.env.VITE_MIMO_TOKEN_PLAN_API_BASE_URL
+    } else {
+      process.env.VITE_MIMO_TOKEN_PLAN_API_BASE_URL = originalMimoTokenPlanApiBaseUrl
+    }
   })
 
   it('should include anthropic in builtin model ids', () => {
@@ -97,6 +137,32 @@ describe('model defaults provider env mapping', () => {
   it('should include cloudflare in builtin model ids', () => {
     const builtinModelIds = getBuiltinModelIds()
     expect(builtinModelIds).toContain('cloudflare')
+  })
+
+  it('should include ollama but keep it disabled without explicit user configuration', () => {
+    const builtinModelIds = getBuiltinModelIds()
+    const models = getDefaultTextModels()
+
+    expect(builtinModelIds).toContain('ollama')
+    expect(models.ollama).toBeDefined()
+    expect(models.ollama.providerMeta.id).toBe('ollama')
+    expect(models.ollama.providerMeta.requiresApiKey).toBe(false)
+    expect(models.ollama.connectionConfig.apiKey).toBe('')
+    expect(models.ollama.connectionConfig.baseURL).toBe('http://localhost:11434/v1')
+    expect(models.ollama.enabled).toBe(false)
+  })
+
+  it('should include Chrome built-in AI but keep it disabled until the user opts in', () => {
+    const builtinModelIds = getBuiltinModelIds()
+    const models = getDefaultTextModels()
+
+    expect(builtinModelIds).toContain('chrome-built-in')
+    expect(models['chrome-built-in']).toBeDefined()
+    expect(models['chrome-built-in'].providerMeta.id).toBe('chrome-built-in')
+    expect(models['chrome-built-in'].providerMeta.requiresApiKey).toBe(false)
+    expect(models['chrome-built-in'].modelMeta.id).toBe('gemini-nano')
+    expect(models['chrome-built-in'].enabled).toBe(false)
+    expect(models['chrome-built-in'].activationState).toEqual({ userConfigured: false })
   })
 
   it('should include cloudflare config and keep it disabled when credentials are empty', () => {
@@ -131,15 +197,34 @@ describe('model defaults provider env mapping', () => {
     expect(models.cloudflare.connectionConfig.accountId).toBe('')
   })
 
-  it('should expose the custom preset as OpenAI-compatible with chat completions by default', () => {
+  it('should expose the custom preset as OpenAI-compatible with chat completions but keep it disabled by default', () => {
     const models = getDefaultTextModels()
 
     expect(models.custom).toBeDefined()
     expect(models.custom.providerMeta.id).toBe('openai-compatible')
-    expect(models.custom.providerMeta.name).toBe('Custom API (OpenAI Compatible)')
-    expect(models.custom.enabled).toBe(true)
+    expect(models.custom.providerMeta.name).toBe('OpenAI Compatible (Custom)')
+    expect(models.custom.enabled).toBe(false)
     expect(models.custom.connectionConfig.apiKey).toBe('')
     expect(models.custom.connectionConfig.requestStyle).toBe('chat_completions')
+  })
+
+  it('should enable the custom preset when explicit custom connection config is provided', () => {
+    process.env.VITE_CUSTOM_API_BASE_URL = 'http://localhost:11434/v1'
+
+    const models = getDefaultTextModels()
+
+    expect(models.custom.enabled).toBe(true)
+    expect(models.custom.connectionConfig.baseURL).toBe('http://localhost:11434/v1')
+  })
+
+  it('should expose VITE_CUSTOM_API_HEADERS on the custom preset connection config', () => {
+    process.env.VITE_CUSTOM_API_HEADERS = '{"x-auth-token":"gateway-token"}'
+
+    const models = getDefaultTextModels()
+
+    expect(models.custom.connectionConfig.customHeaders).toEqual({
+      'x-auth-token': 'gateway-token'
+    })
   })
 
   it('should use DeepSeek V4 Flash with thinking disabled by default', () => {
@@ -152,5 +237,50 @@ describe('model defaults provider env mapping', () => {
     expect(models.deepseek.paramOverrides).toEqual({
       thinking_type: 'disabled'
     })
+  })
+
+  it('should include Grok 4.5 with high reasoning effort by default', () => {
+    const models = getDefaultTextModels()
+
+    expect(models.grok).toBeDefined()
+    expect(models.grok.providerMeta.id).toBe('grok')
+    expect(models.grok.modelMeta.id).toBe('grok-4.5')
+    expect(models.grok.enabled).toBe(false)
+    expect(models.grok.paramOverrides).toEqual({
+      reasoning_effort: 'high'
+    })
+  })
+
+  it('should enable Grok when VITE_XAI_API_KEY is provided', () => {
+    process.env.VITE_XAI_API_KEY = 'test-xai-key'
+
+    const models = getDefaultTextModels()
+
+    expect(models.grok.enabled).toBe(true)
+    expect(models.grok.connectionConfig.apiKey).toBe('test-xai-key')
+  })
+
+  it('should include Xiaomi MiMo Token Plan with MiMo 2.5 Pro and China endpoint by default', () => {
+    const builtinModelIds = getBuiltinModelIds()
+    const models = getDefaultTextModels()
+
+    expect(builtinModelIds).toContain('xiaomi-mimo-token-plan')
+    expect(models['xiaomi-mimo']).toBeUndefined()
+    expect(models['xiaomi-mimo-token-plan']).toBeDefined()
+    expect(models['xiaomi-mimo-token-plan'].providerMeta.id).toBe('xiaomi-mimo-token-plan')
+    expect(models['xiaomi-mimo-token-plan'].modelMeta.id).toBe('mimo-v2.5-pro')
+    expect(models['xiaomi-mimo-token-plan'].connectionConfig.baseURL).toBe('https://token-plan-cn.xiaomimimo.com/v1')
+    expect(models['xiaomi-mimo-token-plan'].enabled).toBe(false)
+  })
+
+  it('should enable Xiaomi MiMo Token Plan from Token Plan env keys only', () => {
+    process.env.VITE_MIMO_TOKEN_PLAN_API_KEY = 'tp-test-key'
+    process.env.VITE_MIMO_TOKEN_PLAN_API_BASE_URL = 'https://token-plan-sgp.xiaomimimo.com/v1'
+
+    const models = getDefaultTextModels()
+
+    expect(models['xiaomi-mimo-token-plan'].enabled).toBe(true)
+    expect(models['xiaomi-mimo-token-plan'].connectionConfig.apiKey).toBe('tp-test-key')
+    expect(models['xiaomi-mimo-token-plan'].connectionConfig.baseURL).toBe('https://token-plan-sgp.xiaomimimo.com/v1')
   })
 })

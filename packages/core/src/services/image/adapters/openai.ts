@@ -10,7 +10,22 @@ import type {
 import { ImageError } from '../errors'
 import { IMAGE_ERROR_CODES } from '../../../constants/error-codes'
 
+const GPT_IMAGE_2_SIZE_VALUES = [
+  '1024x1024',
+  '1536x1024',
+  '1024x1536',
+  '2048x2048',
+  '2048x1152',
+  '3840x2160',
+  '2160x3840',
+  'auto'
+] as const
+
+const GPT_IMAGE_2_BACKGROUND_VALUES = ['auto', 'opaque'] as const
+
 export class OpenAIImageAdapter extends AbstractImageProviderAdapter {
+  private static readonly FORCED_SINGLE_OUTPUT_PARAM_KEYS = ['n', 'batch_size', 'outputMimeType', 'response_format']
+
   protected normalizeBaseUrl(base: string): string {
     const trimmed = base.replace(/\/$/, '')
     return /\/v1$/.test(trimmed) ? trimmed : `${trimmed}/v1`
@@ -45,7 +60,7 @@ export class OpenAIImageAdapter extends AbstractImageProviderAdapter {
         capabilities: {
           text2image: true,
           image2image: true,
-          multiImage: false
+          multiImage: true
         },
         parameterDefinitions: [
           {
@@ -54,7 +69,7 @@ export class OpenAIImageAdapter extends AbstractImageProviderAdapter {
             descriptionKey: 'image.params.size.description',
             type: 'string',
             defaultValue: '1024x1024',
-            allowedValues: ['1024x1024', '1536x1024', '1024x1536', 'auto']
+            allowedValues: [...GPT_IMAGE_2_SIZE_VALUES]
           },
           {
             name: 'quality',
@@ -70,7 +85,7 @@ export class OpenAIImageAdapter extends AbstractImageProviderAdapter {
             descriptionKey: 'image.params.background.description',
             type: 'string',
             defaultValue: 'auto',
-            allowedValues: ['auto', 'transparent', 'opaque']
+            allowedValues: [...GPT_IMAGE_2_BACKGROUND_VALUES]
           }
         ],
         defaultParameterValues: {
@@ -143,7 +158,7 @@ export class OpenAIImageAdapter extends AbstractImageProviderAdapter {
   }
 
   protected getParameterDefinitions(_modelId: string): readonly ImageParameterDefinition[] {
-    // GPT Image 1 使用统一的参数定义，n参数固定为1不暴露给用户
+    // GPT Image 2 使用统一的参数定义，n参数固定为1不暴露给用户
     return [
       {
         name: 'size',
@@ -151,7 +166,7 @@ export class OpenAIImageAdapter extends AbstractImageProviderAdapter {
         descriptionKey: 'image.params.size.description',
         type: 'string',
         defaultValue: '1024x1024',
-        allowedValues: ['1024x1024', '1536x1024', '1024x1536', 'auto']
+        allowedValues: [...GPT_IMAGE_2_SIZE_VALUES]
       },
       {
         name: 'quality',
@@ -167,7 +182,7 @@ export class OpenAIImageAdapter extends AbstractImageProviderAdapter {
         descriptionKey: 'image.params.background.description',
         type: 'string',
         defaultValue: 'auto',
-        allowedValues: ['auto', 'transparent', 'opaque']
+        allowedValues: [...GPT_IMAGE_2_BACKGROUND_VALUES]
       }
     ]
   }
@@ -212,11 +227,11 @@ export class OpenAIImageAdapter extends AbstractImageProviderAdapter {
   }
 
   protected async doGenerate(request: ImageRequest, config: ImageModelConfig): Promise<ImageResult> {
-    const hasInputImage = !!request.inputImage
+    const inputImages = this.getEditInputImages(request)
 
-    if (hasInputImage) {
+    if (inputImages.length > 0) {
       // 图像编辑模式：使用 /images/edits 端点
-      return await this.generateImageEdit(request, config)
+      return await this.generateImageEdit(request, config, inputImages)
     } else {
       // 文生图模式：使用 /images/generations 端点
       return await this.generateImage(request, config)
@@ -227,16 +242,11 @@ export class OpenAIImageAdapter extends AbstractImageProviderAdapter {
     const merged: Record<string, any> = {
       model: config.modelId,
       prompt: request.prompt,
-      response_format: 'b64_json',
       output_format: 'png', // 固定为png
       stream: false,
       // 合并参数覆盖（先合并，后强制覆盖）
-      ...config.paramOverrides,
-      ...request.paramOverrides
+      ...this.getOpenAIParamOverrides(request, config)
     }
-    // 隐藏并固定多图相关参数
-    delete (merged as any).n
-    delete (merged as any).batch_size
     const payload = { ...merged, n: 1 }
 
     const response = await this.apiCall(config, '/images/generations', {
@@ -251,8 +261,12 @@ export class OpenAIImageAdapter extends AbstractImageProviderAdapter {
     return this.parseImageResponse(response, config)
   }
 
-  private async generateImageEdit(request: ImageRequest, config: ImageModelConfig): Promise<ImageResult> {
-    if (!request.inputImage) {
+  private async generateImageEdit(
+    request: ImageRequest,
+    config: ImageModelConfig,
+    inputImages: NonNullable<ImageRequest['inputImages']>
+  ): Promise<ImageResult> {
+    if (inputImages.length === 0) {
       throw new ImageError(IMAGE_ERROR_CODES.IMAGE2IMAGE_INPUT_IMAGE_REQUIRED)
     }
 
@@ -260,28 +274,25 @@ export class OpenAIImageAdapter extends AbstractImageProviderAdapter {
     const formData = new FormData()
     formData.append('model', config.modelId)
     formData.append('prompt', request.prompt)
-    formData.append('response_format', 'b64_json')
     formData.append('output_format', 'png') // 固定为png
 
-    // 添加参数覆盖（隐藏多图相关参数）
-    const allParams: Record<string, any> = { ...config.paramOverrides, ...request.paramOverrides }
-    delete allParams.n
-    delete allParams.batch_size
+    // 添加参数覆盖（隐藏结果数量与 UI 内部参数）
+    const allParams = this.getOpenAIParamOverrides(request, config)
     for (const [key, value] of Object.entries(allParams)) {
       if (value !== undefined && value !== null) {
         formData.append(key, String(value))
       }
     }
 
-    // 固定单图
+    // 固定生成一张结果图
     formData.append('n', '1')
 
-    // 转换base64图像为Blob
-    const imageBlob = this.base64ToBlob(
-      request.inputImage.b64 || '',
-      request.inputImage.mimeType || 'image/png'
-    )
-    formData.append('image', imageBlob, 'input.png')
+    const imageFieldName = inputImages.length > 1 ? 'image[]' : 'image'
+    inputImages.forEach((inputImage, index) => {
+      const mimeType = inputImage.mimeType || 'image/png'
+      const imageBlob = this.base64ToBlob(inputImage.b64 || '', mimeType)
+      formData.append(imageFieldName, imageBlob, `input-${index + 1}.${this.getFileExtension(mimeType)}`)
+    })
 
     const response = await this.apiCall(config, '/images/edits', {
       method: 'POST',
@@ -295,24 +306,57 @@ export class OpenAIImageAdapter extends AbstractImageProviderAdapter {
     return this.parseImageResponse(response, config)
   }
 
+  private getEditInputImages(request: ImageRequest): NonNullable<ImageRequest['inputImages']> {
+    if (Array.isArray(request.inputImages) && request.inputImages.length > 0) {
+      return request.inputImages
+    }
+
+    return request.inputImage ? [request.inputImage] : []
+  }
+
+  private getOpenAIParamOverrides(
+    request: ImageRequest,
+    config: ImageModelConfig
+  ): Record<string, any> {
+    const params: Record<string, any> = { ...config.paramOverrides, ...request.paramOverrides }
+    for (const key of OpenAIImageAdapter.FORCED_SINGLE_OUTPUT_PARAM_KEYS) {
+      delete params[key]
+    }
+    return params
+  }
+
+  private getFileExtension(mimeType: string): string {
+    const normalized = mimeType.toLowerCase()
+    if (normalized.includes('jpeg') || normalized.includes('jpg')) return 'jpg'
+    if (normalized.includes('webp')) return 'webp'
+    return 'png'
+  }
+
   private parseImageResponse(response: any, config: ImageModelConfig): ImageResult {
     if (!response.data || !Array.isArray(response.data)) {
       throw new ImageError(IMAGE_ERROR_CODES.INVALID_RESPONSE_FORMAT)
     }
 
     const images = response.data.map((item: any) => {
-      if (!item.b64_json) {
+      if (item.b64_json) {
+        // GPT Image 系列默认返回 base64；无需发送已废弃的 response_format 参数。
+        const dataUrl = `data:image/png;base64,${item.b64_json}`
+
+        return {
+          b64: item.b64_json,
+          mimeType: 'image/png',
+          url: dataUrl
+        }
+      }
+
+      if (item.url) {
+        return {
+          url: item.url,
+          mimeType: 'image/png'
+        }
+      }
+
         throw new ImageError(IMAGE_ERROR_CODES.INVALID_RESPONSE_FORMAT)
-      }
-
-      // 构建 data URL
-      const dataUrl = `data:image/png;base64,${item.b64_json}`
-
-      return {
-        b64: item.b64_json,
-        mimeType: 'image/png',
-        url: dataUrl
-      }
     })
 
     return {

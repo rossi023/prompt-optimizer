@@ -35,6 +35,33 @@ const messages = {
     "hide": "隐藏",
     "clear": "清空",
     "workspaceTools": "工作区工具",
+    "promptGarden": {
+      "title": "Prompt Garden",
+      "discover": "发现花园提示词",
+      "importPrompt": "导入花园提示词",
+      "importFavorite": "导入为收藏",
+      "importTitle": "导入 Prompt Garden 提示词",
+      "importHint": "粘贴从 Prompt Garden 复制的导入码，也可以粘贴包含 importCode 的链接。",
+      "importFavoriteTitle": "从 Prompt Garden 导入收藏",
+      "importFavoriteHint": "粘贴 Prompt Garden 导入码或链接，导入后会打开收藏保存确认。",
+      "importPlaceholder": "输入导入码",
+      "text2ImageGuideTitle": "从 Prompt Garden 发现文生图提示词",
+      "text2ImageGuideHint": "没有灵感时，可以先去花园挑一个提示词，或粘贴导入码直接带入当前工作区。",
+      "image2ImageGuideTitle": "从 Prompt Garden 发现图生图提示词",
+      "image2ImageGuideHint": "没有改图思路时，可以先去花园挑一个图生图提示词，或粘贴导入码带入当前工作区。",
+      "inspirationTrigger": "灵感",
+      "inspirationStartTitle": "从灵感开始",
+      "inspirationTitle": "找点灵感",
+      "loadingSuggestions": "正在加载灵感...",
+      "refreshSuggestions": "换一批",
+      "browseMore": "浏览更多",
+      "noSuggestions": "暂时没有推荐，可以去花园浏览或粘贴导入码。",
+      "useShort": "使用",
+      "replaceImportShort": "替换导入",
+      "discoverShort": "去发现",
+      "importShort": "粘贴导入码",
+      "importingStatus": "正在从 Prompt Garden 获取提示词和图片资源..."
+    },
     "clearContent": "清理内容",
     "clearContentWillLabel": "清理内容：",
     "clearContentWill": "提示词、派生结果、测试结果、临时变量",
@@ -96,6 +123,18 @@ const messages = {
   "actions": {
     "copy": "复制",
     "fullscreen": "全屏"
+  },
+  "copyOpen": {
+    "copyOnly": "仅复制",
+    "copyAndOpen": "复制并打开 {platform}",
+    "selectAction": "选择复制动作",
+    "openFailed": "已复制，但打开平台失败",
+    "platforms": {
+      "chatgpt": "ChatGPT",
+      "claude": "Claude",
+      "gemini": "Gemini",
+      "deepseek": "DeepSeek"
+    }
   },
   "nav": {
     "home": "首页",

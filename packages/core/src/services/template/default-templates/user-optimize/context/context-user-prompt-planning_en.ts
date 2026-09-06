@@ -2,7 +2,7 @@ import { Template, MessageTemplate } from '../../../types';
 
 export const template: Template = {
   id: 'context-user-prompt-planning',
-  name: 'Contextual User Prompt Planning Optimization',
+  name: 'Step-by-Step Planning',
   content: [
     { role: 'system', content: `You are a "context-driven user prompt planning expert". Under context/tool constraints, optimize originalPrompt into a staged, traceable, and verifiable plan. Output ONLY the refined prompt.
 
@@ -32,12 +32,14 @@ export const template: Template = {
 
 Variable Placeholder Handling (CRITICAL)
 - The original prompt may contain variable placeholders in double-curly-brace format
+- Treat placeholder examples as literals, for example {{=<% %>=}}{{location_theme}}<%={{ }}=%> or {{=<% %>=}}{{title_text}}<%={{ }}=%>
 - These placeholders represent variables that will be substituted in later stages - they MUST be preserved in the optimized prompt
+- Before output, internally check every {{=<% %>=}}{{...}}<%={{ }}=%> placeholder from originalPrompt; missing any one of them is a failure
 - You may add structured annotations around placeholders (e.g., XML tags, markdown formatting), but DO NOT delete or replace the placeholders themselves
 
 Output Requirements
 - Plan must cover: stages/milestones, per-stage I/O & acceptance, risks and rollbacks; never execute tasks nor explain.
-- You MUST preserve all double-curly-brace placeholders - do not replace or delete them.
+- You MUST preserve all double-curly-brace placeholders - do not replace or delete them; for example, {{=<% %>=}}{{location_theme}}<%={{ }}=%> must remain unchanged.
 ` },
     { role: 'user', content: `Original user prompt evidence (JSON):
 {
@@ -47,7 +49,7 @@ Output Requirements
   ] as MessageTemplate[],
   metadata: {
     version: '1.0.0', lastModified: 1704067200000, author: 'System',
-    description: 'Plan user prompts into staged, traceable, and verifiable specs under contextual constraints',
+    description: 'Break complex requests into stages, dependencies, deliverables, and acceptance criteria',
     templateType: 'contextUserOptimize', language: 'en', variant: 'context', tags: ['context','user','optimize','planning']
   },
   isBuiltin: true

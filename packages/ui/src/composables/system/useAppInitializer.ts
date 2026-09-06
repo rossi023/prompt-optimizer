@@ -14,6 +14,7 @@ import {
   createContextRepo,
   createEvaluationService,
   createImageUnderstandingService,
+  ElectronImageUnderstandingServiceProxy,
   createVariableExtractionService,
   createVariableValueGenerationService,
   ElectronContextRepoProxy,
@@ -62,6 +63,7 @@ import {
   attachFavoriteAssetGc,
   runFavoriteAssetGc,
 } from '../../utils/favorite-asset-maintenance'
+import { autoEnableChromeBuiltInModelIfReady } from '../../utils/chrome-built-in-auto-enable'
 
 const appendStartupRepairReport = (
   currentReport: StartupRepairReport | null,
@@ -211,9 +213,7 @@ export function useAppInitializer(): {
         // 🆕 创建评估服务（使用代理的 llmService, modelManager, templateManager）
         evaluationService = createEvaluationService(llmService, modelManager, templateManager, {
           imageStorageService,
-          imageUnderstandingService: createImageUnderstandingService({
-            registry: textAdapterRegistryInstance,
-          }),
+          imageUnderstandingService: new ElectronImageUnderstandingServiceProxy(),
         });
 
         // 🆕 创建变量提取服务（使用代理的 llmService, modelManager, templateManager）
@@ -326,6 +326,14 @@ export function useAppInitializer(): {
         // Now ensure model manager with async init is ready (template manager no longer needs async init)
         console.log('[AppInitializer] Ensuring model manager initialization is complete...');
         await modelManagerInstance.ensureInitialized();
+        try {
+          const chromeBuiltInSync = await autoEnableChromeBuiltInModelIfReady(modelManagerInstance)
+          if (chromeBuiltInSync.enabled) {
+            console.log('[AppInitializer] Auto-enabled Chrome built-in AI because the browser model is available.');
+          }
+        } catch (err) {
+          console.warn('[AppInitializer] Chrome built-in AI auto-enable check failed (non-critical):', err);
+        }
 
         // Assign instances after they are fully initialized
         modelManager = modelManagerInstance;
@@ -419,7 +427,14 @@ export function useAppInitializer(): {
         const contextRepo = createContextRepo(storageProvider);
 
         // 创建 DataManager（需要contextRepo）
-        dataManager = createDataManager(modelManagerInstance, templateManagerInstance, historyManagerInstance, preferenceService, contextRepo);
+        dataManager = createDataManager(
+          modelManagerInstance,
+          templateManagerInstance,
+          historyManagerInstance,
+          preferenceService,
+          contextRepo,
+          imageModelManagerInstance,
+        );
 
         // 创建收藏管理器
         favoriteManager = new FavoriteManager(storageProvider);

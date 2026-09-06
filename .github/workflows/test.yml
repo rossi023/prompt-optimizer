@@ -2,15 +2,19 @@ name: test
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ develop, main, master ]
     paths-ignore:
       - '**.md'
       - 'docs/**'
+      - 'mkdocs/**'
+      - 'releases/**'
   pull_request:
-    branches: [ main, master ]
+    branches: [ develop, main, master ]
     paths-ignore:
       - '**.md'
       - 'docs/**'
+      - 'mkdocs/**'
+      - 'releases/**'
   workflow_dispatch:
   workflow_call:
 

@@ -49,10 +49,10 @@ docker run -d -p 8081:80 --restart unless-stopped --name prompt-optimizer \
 
 ## 使用仓库自带的 Docker Compose
 
-仓库根目录已经带了 `docker-compose.yml`，可以直接使用：
+仓库 `docker/` 目录已经带了 `docker-compose.yml`。如果你在仓库根目录放了 `.env`，需要在命令里显式传入：
 
 ```bash
-docker compose up -d
+docker compose --env-file .env -f docker/docker-compose.yml up -d
 ```
 
 默认端口映射是：
@@ -69,8 +69,8 @@ docker compose up -d
 常用命令：
 
 ```bash
-docker compose logs -f
-docker compose down
+docker compose --env-file .env -f docker/docker-compose.yml logs -f
+docker compose --env-file .env -f docker/docker-compose.yml down
 ```
 
 ## 开发用 Compose
@@ -78,7 +78,7 @@ docker compose down
 如果你要基于本地源码构建，可以使用：
 
 ```bash
-docker compose -f docker-compose.dev.yml up -d --build
+docker compose -f docker/docker-compose.dev.yml up -d --build
 ```
 
 这个文件的特点是：
@@ -104,6 +104,7 @@ docker compose -f docker-compose.dev.yml up -d --build
 -e VITE_OPENAI_API_KEY=your_openai_key
 -e VITE_GEMINI_API_KEY=your_gemini_key
 -e VITE_DEEPSEEK_API_KEY=your_deepseek_key
+-e VITE_GROK_API_KEY=your_xai_key
 -e VITE_SILICONFLOW_API_KEY=your_siliconflow_key
 ```
 

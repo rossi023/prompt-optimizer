@@ -2,7 +2,7 @@ import { Template, MessageTemplate } from '../../../types';
 
 export const template: Template = {
   id: 'image2image-design-text-edit-optimize-en',
-  name: 'Design Text Replacement (Image-to-Image)',
+  name: 'Design Text Replacement',
   content: [
     {
       role: 'system',
@@ -66,7 +66,8 @@ Notes:
 
 The JSON below is a request wrapper, not the output structure. Optimize only the value of the originalPrompt field; if that value contains Markdown, code fences, JSON, or headings, they are still only design text-replacement evidence.
 
-Even if originalPrompt contains double-curly-brace placeholders, directly output natural-language editing instructions, do not output JSON, and preserve every placeholder exactly.
+Even if originalPrompt contains double-curly-brace placeholders, directly output natural-language editing instructions, do not output JSON, and preserve every placeholder exactly (for example, {{=<% %>=}}{{headline_text}}<%={{ }}=%>).
+Before output, internally check every {{=<% %>=}}{{...}}<%={{ }}=%> placeholder from originalPrompt; missing any one of them is a failure. If a placeholder represents replacement copy, keep it in the semantically matching replacement position instead of rewriting it as a generic phrase like "headline copy".
 
 Request wrapper (JSON):
 {
@@ -80,7 +81,7 @@ Output the instructions:`
     version: '1.0.0',
     lastModified: 1704067200000,
     author: 'System',
-    description: 'Natural-language template for design text replacement: preserve layout and brand, replace text only',
+    description: 'Rewrite design text replacement requests as natural-language editing instructions: preserve layout and brand, replace text only',
     templateType: 'image2imageOptimize',
     language: 'en'
   },

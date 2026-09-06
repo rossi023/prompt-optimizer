@@ -173,10 +173,10 @@ interface EvaluationServiceDependencies {
 interface ResolvedEvaluationMedia {
   label: string;
   role: string;
-  snapshotId: string;
-  snapshotLabel: string;
+  snapshotId?: string;
+  snapshotLabel?: string;
   blockLabel: string;
-  promptRefKind: EvaluationSnapshot['promptRef']['kind'];
+  promptRefKind?: EvaluationSnapshot['promptRef']['kind'];
   testCaseLabel: string;
   description: string;
   b64: string;
@@ -198,6 +198,75 @@ export class EvaluationService implements IEvaluationService {
   ) {
     this.imageStorageService = dependencies.imageStorageService;
     this.imageUnderstandingService = dependencies.imageUnderstandingService;
+  }
+
+  private formatExecutionErrorMessage(error: unknown, fallback = 'Unknown evaluation execution error'): string {
+    if (typeof error === 'string') {
+      return error.trim() || fallback;
+    }
+
+    if (error instanceof Error) {
+      const message = error.message?.trim();
+      if (message && !/^\[object .+\]$/.test(message)) {
+        return message;
+      }
+
+      const cause = (error as Error & { cause?: unknown }).cause;
+      if (cause !== undefined) {
+        return this.formatExecutionErrorMessage(cause, fallback);
+      }
+
+      return message || fallback;
+    }
+
+    if (error && typeof error === 'object') {
+      const record = error as Record<string, unknown>;
+      const directMessage = record.message;
+      if (typeof directMessage === 'string' && directMessage.trim() && !/^\[object .+\]$/.test(directMessage.trim())) {
+        return directMessage.trim();
+      }
+      if (directMessage !== undefined && directMessage !== error) {
+        return this.formatExecutionErrorMessage(directMessage, fallback);
+      }
+
+      const nestedError = record.error;
+      if (nestedError !== undefined && nestedError !== error) {
+        const nestedMessage = this.formatExecutionErrorMessage(nestedError, '');
+        if (nestedMessage) {
+          return nestedMessage;
+        }
+      }
+
+      const status = record.status ?? record.statusCode ?? (record.response as Record<string, unknown> | undefined)?.status;
+      const body = record.body ?? record.data ?? (record.response as Record<string, unknown> | undefined)?.data;
+      const bodyMessage = body !== undefined && body !== error
+        ? this.formatExecutionErrorMessage(body, '')
+        : '';
+
+      if (status !== undefined) {
+        return bodyMessage
+          ? `HTTP ${String(status)}: ${bodyMessage}`
+          : `HTTP ${String(status)} error`;
+      }
+
+      try {
+        return JSON.stringify(error);
+      } catch {
+        return fallback;
+      }
+    }
+
+    if (error === null || error === undefined) {
+      return fallback;
+    }
+
+    return String(error);
+  }
+
+  private toError(error: unknown): Error {
+    return error instanceof Error
+      ? error
+      : new Error(this.formatExecutionErrorMessage(error));
   }
 
   /**
@@ -251,7 +320,7 @@ export class EvaluationService implements IEvaluationService {
       return this.parseEvaluationResult(result, request.type, responseMetadata);
     } catch (error) {
       throw new EvaluationExecutionError(
-        error instanceof Error ? error.message : String(error),
+        this.formatExecutionErrorMessage(error),
         error instanceof Error ? error : undefined
       );
     }
@@ -267,7 +336,7 @@ export class EvaluationService implements IEvaluationService {
     try {
       this.validateRequest(request);
     } catch (error) {
-      callbacks.onError(error instanceof Error ? error : new Error(String(error)));
+      callbacks.onError(this.toError(error));
       return;
     }
 
@@ -275,7 +344,7 @@ export class EvaluationService implements IEvaluationService {
       const modelConfig = await this.validateModel(request.evaluationModelKey);
       await this.evaluateStreamInternal(request, callbacks, modelConfig);
     } catch (error) {
-      callbacks.onError(error instanceof Error ? error : new Error(String(error)));
+      callbacks.onError(this.toError(error));
     }
   }
 
@@ -291,7 +360,7 @@ export class EvaluationService implements IEvaluationService {
         try {
           await this.evaluateStructuredCompareStream(request, normalizedCompare, callbacks);
         } catch (error) {
-          callbacks.onError(error instanceof Error ? error : new Error(String(error)));
+          callbacks.onError(this.toError(error));
         }
         return;
       }
@@ -301,7 +370,7 @@ export class EvaluationService implements IEvaluationService {
     try {
       template = await this.getEvaluationTemplate(request.type, request.mode);
     } catch (error) {
-      callbacks.onError(error instanceof Error ? error : new Error(String(error)));
+      callbacks.onError(this.toError(error));
       return;
     }
 
@@ -328,7 +397,7 @@ export class EvaluationService implements IEvaluationService {
         );
         callbacks.onComplete(response);
       } catch (error) {
-        callbacks.onError(error instanceof Error ? error : new Error(String(error)));
+        callbacks.onError(this.toError(error));
       }
       return;
     }
@@ -357,11 +426,11 @@ export class EvaluationService implements IEvaluationService {
           );
           callbacks.onComplete(response);
         } catch (error) {
-          callbacks.onError(error instanceof Error ? error : new Error(String(error)));
+          callbacks.onError(this.toError(error));
         }
       },
       onError: (error) => {
-        callbacks.onError(new EvaluationExecutionError(error.message, error));
+        callbacks.onError(new EvaluationExecutionError(this.formatExecutionErrorMessage(error), error));
       },
     };
 
@@ -370,7 +439,7 @@ export class EvaluationService implements IEvaluationService {
     } catch (error) {
       callbacks.onError(
         new EvaluationExecutionError(
-          error instanceof Error ? error.message : String(error),
+          this.formatExecutionErrorMessage(error),
           error instanceof Error ? error : undefined
         )
       );
@@ -595,12 +664,23 @@ export class EvaluationService implements IEvaluationService {
   private shouldForceGenericCompare(
     request: Extract<EvaluationRequest, { type: 'compare' }>
   ): boolean {
-    return this.isImageText2ImageMode(request);
+    return (
+      this.isImageText2ImageMode(request) ||
+      this.hasBasicSystemTestCaseInputMedia(request)
+    );
   }
 
   private shouldUseMultimodalEvaluation(
     request: EvaluationRequest
   ): request is Extract<EvaluationRequest, { type: 'result' | 'compare' }> {
+    if (request.type !== 'result' && request.type !== 'compare') {
+      return false;
+    }
+
+    if (this.hasBasicSystemTestCaseInputMedia(request)) {
+      return true;
+    }
+
     if (!this.isImageText2ImageMode(request)) {
       return false;
     }
@@ -684,11 +764,42 @@ export class EvaluationService implements IEvaluationService {
         ? new Map(request.testCases.map((testCase) => [testCase.id.trim(), testCase.label?.trim() || '']))
         : new Map([[request.testCase.id.trim(), request.testCase.label?.trim() || '']]);
 
+    const resolvedMedia: ResolvedEvaluationMedia[] = [];
+
+    if (this.isBasicSystemMode(request)) {
+      const inputMediaKeys = new Set<string>();
+      const testCases = request.type === 'compare' ? request.testCases : [request.testCase];
+
+      for (const testCase of testCases) {
+        const block = testCase.input;
+        if (!block.media?.length) {
+          continue;
+        }
+
+        for (const mediaItem of block.media) {
+          const identity = this.buildEvaluationMediaIdentity(mediaItem);
+          if (inputMediaKeys.has(identity)) {
+            continue;
+          }
+          inputMediaKeys.add(identity);
+
+          const media = await this.resolveEvaluationMediaItem(mediaItem);
+          resolvedMedia.push({
+            label: mediaItem.label.trim(),
+            role: 'test-case-input-image',
+            blockLabel: block.label.trim(),
+            testCaseLabel: testCase.label?.trim() || testCase.id.trim(),
+            description: block.content.trim(),
+            b64: media.b64,
+            mimeType: media.mimeType,
+          });
+        }
+      }
+    }
+
     const snapshots = request.type === 'compare'
       ? request.snapshots.filter((snapshot) => this.hasSnapshotOutputMedia(snapshot))
       : [request.snapshot];
-
-    const resolvedMedia: ResolvedEvaluationMedia[] = [];
 
     for (const snapshot of snapshots) {
       const block = snapshot.outputBlock;
@@ -761,6 +872,15 @@ export class EvaluationService implements IEvaluationService {
     };
   }
 
+  private buildEvaluationMediaIdentity(mediaItem: EvaluationMediaItem): string {
+    const assetId = mediaItem.assetId?.trim() || '';
+    if (assetId) {
+      return `asset:${assetId}`;
+    }
+
+    return `inline:${mediaItem.mimeType?.trim() || 'image/png'}:${mediaItem.b64?.trim() || ''}`;
+  }
+
   private buildImageEvidenceManifest(mediaItems: ResolvedEvaluationMedia[]): string {
     const lines = [
       '## Image Evidence Manifest',
@@ -768,8 +888,15 @@ export class EvaluationService implements IEvaluationService {
     ];
 
     mediaItems.forEach((item, index) => {
+      if (item.snapshotId) {
+        lines.push(
+          `${index + 1}. role=${item.role}; snapshot=${item.snapshotLabel} (${item.snapshotId}); testCase=${item.testCaseLabel}; promptRef=${item.promptRefKind}; block=${item.blockLabel}; media=${item.label}; description=${item.description}`
+        );
+        return;
+      }
+
       lines.push(
-        `${index + 1}. role=${item.role}; snapshot=${item.snapshotLabel} (${item.snapshotId}); testCase=${item.testCaseLabel}; promptRef=${item.promptRefKind}; block=${item.blockLabel}; media=${item.label}; description=${item.description}`
+        `${index + 1}. role=${item.role}; testCase=${item.testCaseLabel}; block=${item.blockLabel}; media=${item.label}; description=${item.description}`
       );
     });
 
@@ -1508,6 +1635,26 @@ export class EvaluationService implements IEvaluationService {
     return Array.isArray(block?.media) && block.media.some((item) => this.hasMediaPayload(item));
   }
 
+  private isBasicSystemMode(request: Pick<EvaluationRequest, 'mode'>): boolean {
+    return request.mode.functionMode === 'basic' && request.mode.subMode === 'system';
+  }
+
+  private hasBasicSystemTestCaseInputMedia(request: EvaluationRequest): boolean {
+    if (!this.isBasicSystemMode(request)) {
+      return false;
+    }
+
+    if (request.type === 'result') {
+      return this.hasBlockMedia(request.testCase.input);
+    }
+
+    if (request.type === 'compare') {
+      return request.testCases.some((testCase) => this.hasBlockMedia(testCase.input));
+    }
+
+    return false;
+  }
+
   private hasSnapshotOutputMedia(snapshot: EvaluationSnapshot | null | undefined): boolean {
     return this.hasBlockMedia(snapshot?.outputBlock);
   }
@@ -2053,7 +2200,7 @@ export class EvaluationService implements IEvaluationService {
       return this.parseEvaluationResult(synthesisResult, request.type, responseMetadata);
     } catch (error) {
       throw new EvaluationExecutionError(
-        error instanceof Error ? error.message : String(error),
+        this.formatExecutionErrorMessage(error),
         error instanceof Error ? error : undefined
       );
     }
@@ -2114,17 +2261,17 @@ export class EvaluationService implements IEvaluationService {
             );
             callbacks.onComplete(response);
           } catch (error) {
-            callbacks.onError(error instanceof Error ? error : new Error(String(error)));
+            callbacks.onError(this.toError(error));
           }
         },
         onError: (error) => {
-          callbacks.onError(new EvaluationExecutionError(error.message, error));
+          callbacks.onError(new EvaluationExecutionError(this.formatExecutionErrorMessage(error), error));
         },
       });
     } catch (error) {
       callbacks.onError(
         new EvaluationExecutionError(
-          error instanceof Error ? error.message : String(error),
+          this.formatExecutionErrorMessage(error),
           error instanceof Error ? error : undefined
         )
       );

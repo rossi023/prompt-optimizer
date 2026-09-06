@@ -124,331 +124,107 @@
       class="favorites-manager-workspace"
       :class="{
         'favorites-manager-workspace--mobile': isMobile,
-        'favorites-manager-workspace--page': useDrawerPanel,
+        'favorites-manager-workspace--page': isPageLayout,
       }"
       data-testid="favorites-manager-workspace"
     >
-      <template v-if="isMobile">
-        <NCard
-          v-if="mobileView === 'list'"
-          size="small"
-          :segmented="{ content: true }"
-          class="favorites-manager-pane favorites-manager-pane--list"
-        >
-          <template #header>
-            <div class="favorites-manager-pane-header">
-              <NText strong>{{ t('favorites.manager.preview.listTitle') }}</NText>
-              <NText depth="3">{{ t('favorites.manager.totalCount', { count: filteredFavorites.length }) }}</NText>
-            </div>
-          </template>
+      <NCard
+        size="small"
+        :segmented="{ content: true }"
+        class="favorites-manager-pane favorites-manager-pane--list"
+        :class="{ 'favorites-manager-pane--library': isPageLayout }"
+      >
+        <template #header>
+          <div class="favorites-manager-pane-header">
+            <NText strong>{{ t('favorites.manager.preview.listTitle') }}</NText>
+            <NText depth="3">{{ t('favorites.manager.totalCount', { count: filteredFavorites.length }) }}</NText>
+          </div>
+        </template>
 
-          <NScrollbar class="favorites-manager-scroll">
-            <div v-if="paginatedFavorites.length === 0" class="favorites-manager-empty">
-              <NEmpty
-                :description="searchKeyword ? t('favorites.manager.emptySearchResult') : t('favorites.manager.emptyDescription')"
-                size="large"
-              >
-                <template #extra>
-                  <NSpace justify="center" :size="8">
-                    <NButton secondary @click="openImportPanel">
-                      {{ t('favorites.manager.import') }}
-                    </NButton>
-                    <NButton type="primary" @click="handleCreateFavorite">
-                      {{ t('favorites.manager.add') }}
-                    </NButton>
-                  </NSpace>
-                </template>
-              </NEmpty>
-            </div>
+        <NScrollbar class="favorites-manager-scroll">
+          <div v-if="paginatedFavorites.length === 0" class="favorites-manager-empty">
+            <NEmpty
+              :description="searchKeyword ? t('favorites.manager.emptySearchResult') : t('favorites.manager.emptyDescription')"
+              size="large"
+            >
+              <template #extra>
+                <NSpace justify="center" :size="8">
+                  <NButton secondary @click="openImportPanel">
+                    {{ t('favorites.manager.import') }}
+                  </NButton>
+                  <NButton type="primary" @click="handleCreateFavorite">
+                    {{ t('favorites.manager.add') }}
+                  </NButton>
+                </NSpace>
+              </template>
+            </NEmpty>
+          </div>
 
-            <NSpace v-else vertical :size="12" class="favorites-manager-list">
-              <FavoriteWorkspaceListItem
-                v-for="favorite in paginatedFavorites"
-                :key="favorite.id"
-                :favorite="favorite"
-                :category="getCategoryById(favorite.category)"
-                :is-selected="selectedFavorite?.id === favorite.id && workspaceMode === 'detail'"
-                @select="handleSelectFavorite"
-                @edit="handleEditFavorite"
-                @delete="handleDeleteFavorite"
-              />
-            </NSpace>
-          </NScrollbar>
-
-          <template v-if="showPagination" #footer>
-            <div class="favorites-manager-pagination">
-              <NPagination
-                v-model:page="currentPage"
-                :page-size="pageSize"
-                :item-count="filteredFavorites.length"
-                :page-slot="5"
-                data-testid="favorites-manager-pagination"
-                :data-page-size="pageSize"
-              />
-            </div>
-          </template>
-        </NCard>
-
-        <NCard
-          v-else
-          size="small"
-          :segmented="{ content: true }"
-          class="favorites-manager-pane favorites-manager-pane--detail"
-        >
-          <template v-if="showPaneHeader" #header>
-            <div class="favorites-manager-pane-header">
-              <NButton quaternary size="small" class="favorites-manager-back" @click="handleBackToList">
-                {{ t('favorites.manager.preview.backToList') }}
-              </NButton>
-              <NText strong>{{ paneTitle }}</NText>
-            </div>
-          </template>
-
-          <div class="favorites-manager-task">
-            <FavoriteDetailPanel
-              v-if="workspaceMode === 'detail'"
-              :favorite="selectedFavorite"
-              :category="getCategoryById(selectedFavorite?.category)"
-              :show-back="true"
-              @back="handleBackToList"
-              @copy="handleCopyFavorite"
-              @use="handleUseFavorite"
+          <div v-else-if="isPageLayout" class="favorites-manager-grid">
+            <FavoriteWorkspaceListItem
+              v-for="favorite in paginatedFavorites"
+              :key="favorite.id"
+              variant="card"
+              :favorite="favorite"
+              :category="getCategoryById(favorite.category)"
+              :is-selected="selectedFavorite?.id === favorite.id && workspaceMode === 'detail'"
+              :show-quick-actions="true"
+              @select="handleSelectFavorite"
               @edit="handleEditFavorite"
               @delete="handleDeleteFavorite"
-              @fullscreen="handleOpenFullscreenFavorite"
-              @favorite-updated="handleFavoriteDetailUpdated"
-            />
-
-            <FavoriteEditorForm
-              v-else-if="workspaceMode === 'edit'"
-              embedded
-              mode="edit"
-              :favorite="taskFavorite || undefined"
-              @cancel="handleTaskCancel"
-              @saved="handleEditorSaved"
-            />
-
-            <FavoriteEditorForm
-              v-else-if="workspaceMode === 'create'"
-              embedded
-              mode="create"
-              @cancel="handleTaskCancel"
-              @saved="handleEditorSaved"
-            />
-
-            <FavoriteImportPanel
-              v-else
-              @cancel="handleTaskCancel"
-              @imported="handleImportCompleted"
-            />
-          </div>
-        </NCard>
-      </template>
-
-      <template v-else>
-        <NCard
-          size="small"
-          :segmented="{ content: true }"
-          class="favorites-manager-pane favorites-manager-pane--list"
-          :class="{ 'favorites-manager-pane--library': isPageLayout }"
-        >
-          <template #header>
-            <div class="favorites-manager-pane-header">
-              <NText strong>{{ t('favorites.manager.preview.listTitle') }}</NText>
-              <NText depth="3">{{ t('favorites.manager.totalCount', { count: filteredFavorites.length }) }}</NText>
-            </div>
-          </template>
-
-          <NScrollbar class="favorites-manager-scroll">
-            <div v-if="paginatedFavorites.length === 0" class="favorites-manager-empty">
-              <NEmpty
-                :description="searchKeyword ? t('favorites.manager.emptySearchResult') : t('favorites.manager.emptyDescription')"
-                size="large"
-              >
-                <template #extra>
-                  <NSpace justify="center" :size="8">
-                    <NButton secondary @click="openImportPanel">
-                      {{ t('favorites.manager.import') }}
-                    </NButton>
-                    <NButton type="primary" @click="handleCreateFavorite">
-                      {{ t('favorites.manager.add') }}
-                    </NButton>
-                  </NSpace>
-                </template>
-              </NEmpty>
-            </div>
-
-            <div v-else-if="isPageLayout" class="favorites-manager-grid">
-              <FavoriteWorkspaceListItem
-                v-for="favorite in paginatedFavorites"
-                :key="favorite.id"
-                variant="card"
-                :favorite="favorite"
-                :category="getCategoryById(favorite.category)"
-                :is-selected="selectedFavorite?.id === favorite.id && workspaceMode === 'detail'"
-                :show-quick-actions="true"
-                @select="handleSelectFavorite"
-                @edit="handleEditFavorite"
-                @delete="handleDeleteFavorite"
-                @copy="handleCopyFavorite"
-                @use="handleUseFavorite"
-              />
-            </div>
-
-            <NSpace v-else vertical :size="12" class="favorites-manager-list">
-              <FavoriteWorkspaceListItem
-                v-for="favorite in paginatedFavorites"
-                :key="favorite.id"
-                :favorite="favorite"
-                :category="getCategoryById(favorite.category)"
-                :is-selected="selectedFavorite?.id === favorite.id && workspaceMode === 'detail'"
-                @select="handleSelectFavorite"
-                @edit="handleEditFavorite"
-                @delete="handleDeleteFavorite"
-              />
-            </NSpace>
-          </NScrollbar>
-
-          <template v-if="showPagination" #footer>
-            <div class="favorites-manager-pagination">
-              <NPagination
-                v-model:page="currentPage"
-                :page-size="pageSize"
-                :item-count="filteredFavorites.length"
-                :page-slot="5"
-                data-testid="favorites-manager-pagination"
-                :data-page-size="pageSize"
-              />
-            </div>
-          </template>
-        </NCard>
-
-        <NCard
-          v-if="!isPageLayout"
-          size="small"
-          :segmented="{ content: true }"
-          class="favorites-manager-pane favorites-manager-pane--detail"
-        >
-          <template v-if="showPaneHeader" #header>
-            <div class="favorites-manager-pane-header">
-              <NText strong>{{ paneTitle }}</NText>
-            </div>
-          </template>
-
-          <div class="favorites-manager-task">
-            <FavoriteDetailPanel
-              v-if="workspaceMode === 'detail'"
-              :favorite="selectedFavorite"
-              :category="getCategoryById(selectedFavorite?.category)"
               @copy="handleCopyFavorite"
               @use="handleUseFavorite"
-              @edit="handleEditFavorite"
-              @delete="handleDeleteFavorite"
-              @fullscreen="handleOpenFullscreenFavorite"
-              @favorite-updated="handleFavoriteDetailUpdated"
-            />
-
-            <FavoriteEditorForm
-              v-else-if="workspaceMode === 'edit'"
-              embedded
-              mode="edit"
-              :favorite="taskFavorite || undefined"
-              @cancel="handleTaskCancel"
-              @saved="handleEditorSaved"
-            />
-
-            <FavoriteEditorForm
-              v-else-if="workspaceMode === 'create'"
-              embedded
-              mode="create"
-              @cancel="handleTaskCancel"
-              @saved="handleEditorSaved"
-            />
-
-            <FavoriteImportPanel
-              v-else
-              @cancel="handleTaskCancel"
-              @imported="handleImportCompleted"
             />
           </div>
-        </NCard>
-      </template>
+
+          <NSpace v-else vertical :size="12" class="favorites-manager-list">
+            <FavoriteWorkspaceListItem
+              v-for="favorite in paginatedFavorites"
+              :key="favorite.id"
+              :favorite="favorite"
+              :category="getCategoryById(favorite.category)"
+              :is-selected="selectedFavorite?.id === favorite.id && workspaceMode === 'detail'"
+              @select="handleSelectFavorite"
+              @edit="handleEditFavorite"
+              @delete="handleDeleteFavorite"
+            />
+          </NSpace>
+        </NScrollbar>
+
+        <template v-if="showPagination" #footer>
+          <div class="favorites-manager-pagination">
+            <NPagination
+              v-model:page="currentPage"
+              :page-size="pageSize"
+              :item-count="filteredFavorites.length"
+              :page-slot="5"
+              data-testid="favorites-manager-pagination"
+              :data-page-size="pageSize"
+            />
+          </div>
+        </template>
+      </NCard>
     </div>
 
-    <NDrawer
-      v-if="useDrawerPanel"
-      v-model:show="drawerVisible"
-      placement="right"
-      :width="drawerWidth"
-      :block-scroll="false"
-      display-directive="show"
-    >
-      <NDrawerContent
-        :title="paneTitle"
-        closable
-        :body-content-style="{ padding: 0 }"
-      >
-        <div class="favorites-manager-task favorites-manager-task--drawer">
-          <FavoriteDetailPanel
-            v-if="workspaceMode === 'detail'"
-            :favorite="selectedFavorite"
-            :category="getCategoryById(selectedFavorite?.category)"
-            :show-back="false"
-            @copy="handleCopyFavorite"
-            @use="handleUseFavorite"
-            @edit="handleEditFavorite"
-            @delete="handleDeleteFavorite"
-            @fullscreen="handleOpenFullscreenFavorite"
-            @favorite-updated="handleFavoriteDetailUpdated"
-          />
+    <FavoriteAssetPanelDialog
+      v-model:show="assetPanelVisible"
+      :mode="workspaceMode"
+      :favorite="assetPanelFavorite"
+      :category="getCategoryById(assetPanelFavorite?.category)"
+      @copy="handleCopyFavorite"
+      @use="handleUseFavorite"
+      @share="handleShareFavorite"
+      @edit="handleEditFavorite"
+      @delete="handleDeleteFavorite"
+      @favorite-updated="handleFavoriteDetailUpdated"
+      @saved="handleEditorSaved"
+      @imported="handleImportCompleted"
+    />
 
-          <FavoriteEditorForm
-            v-else-if="workspaceMode === 'edit'"
-            embedded
-            mode="edit"
-            :favorite="taskFavorite || undefined"
-            @cancel="handleTaskCancel"
-            @saved="handleEditorSaved"
-          />
-
-          <FavoriteEditorForm
-            v-else-if="workspaceMode === 'create'"
-            embedded
-            mode="create"
-            @cancel="handleTaskCancel"
-            @saved="handleEditorSaved"
-          />
-
-          <FavoriteImportPanel
-            v-else
-            @cancel="handleTaskCancel"
-            @imported="handleImportCompleted"
-          />
-        </div>
-      </NDrawerContent>
-    </NDrawer>
-
-    <OutputDisplayFullscreen
-      v-if="fullscreenFavorite"
-      v-model="fullscreenVisible"
-      :title="fullscreenDialogTitle"
-      :content="fullscreenFavorite.content"
-      :original-content="fullscreenOriginalContent"
-      :reasoning="fullscreenFavorite.metadata?.reasoning || ''"
-      mode="readonly"
-      :enabled-actions="['copy', 'diff']"
-      @copy="handleFullscreenCopy"
-    >
-      <template #extra-content>
-        <FavoriteMediaPreviewPanel
-          :favorite="fullscreenFavorite"
-        />
-        <FavoritePreviewExtensionHost
-          :favorite="fullscreenFavorite"
-          @favorite-updated="handleFavoriteDetailUpdated"
-        />
-      </template>
-    </OutputDisplayFullscreen>
+    <FavoriteShareExportDialog
+      v-model:show="shareExportVisible"
+      :favorite="shareExportFavorite"
+    />
 
     <NModal
       :show="categoryManagerVisible"
@@ -476,8 +252,6 @@ import { useDebounceFn } from '@vueuse/core'
 import {
   NButton,
   NCard,
-  NDrawer,
-  NDrawerContent,
   NDropdown,
   NEmpty,
   NIcon,
@@ -503,19 +277,21 @@ import { useI18n } from 'vue-i18n'
 import type { FavoriteCategory, FavoritePrompt } from '@prompt-optimizer/core'
 
 import { useFavoriteInitializer } from '../composables/storage/useFavoriteInitializer'
+import { useConfirmDialog } from '../composables/ui/useConfirmDialog'
 import { useToast } from '../composables/ui/useToast'
 import type { AppServices } from '../types/services'
 import { getI18nErrorMessage } from '../utils/error'
+import {
+  FAVORITE_UPDATED_EVENT,
+  getFavoriteUpdatedEventDetail,
+} from '../utils/favorite-events'
 import { normalizeFavoriteFunctionMode, type NormalizedFavoriteFunctionMode } from '../utils/favorite-mode'
+import { createFavoriteResourcePackage } from '../utils/favorite-resource-package'
 import CategoryManager from './CategoryManager.vue'
 import CategoryTreeSelect from './CategoryTreeSelect.vue'
-import FavoriteDetailPanel from './FavoriteDetailPanel.vue'
-import FavoriteEditorForm from './FavoriteEditorForm.vue'
-import FavoriteImportPanel from './FavoriteImportPanel.vue'
-import FavoriteMediaPreviewPanel from './FavoriteMediaPreviewPanel.vue'
-import FavoritePreviewExtensionHost from './FavoritePreviewExtensionHost.vue'
+import FavoriteAssetPanelDialog from './favorites/FavoriteAssetPanelDialog.vue'
+import FavoriteShareExportDialog from './favorites/FavoriteShareExportDialog.vue'
 import FavoriteWorkspaceListItem from './FavoriteWorkspaceListItem.vue'
-import OutputDisplayFullscreen from './OutputDisplayFullscreen.vue'
 import TagManager from './TagManager.vue'
 
 type WorkspaceMode = 'detail' | 'edit' | 'create' | 'import'
@@ -574,6 +350,7 @@ const emit = defineEmits<{
 
 const services = inject<Ref<AppServices | null> | null>('services', null)
 const message = useToast()
+const confirmDialog = useConfirmDialog()
 
 let ensuredDefaultCategoryManager: NonNullable<AppServices['favoriteManager']> | null = null
 
@@ -595,19 +372,18 @@ const selectedModeFilter = ref<FavoriteModeFilterKey>('all')
 const selectedCategory = ref<string>('')
 const selectedTags = ref<string[]>([])
 const selectedFavorite = ref<FavoritePrompt | null>(null)
-const fullscreenFavorite = ref<FavoritePrompt | null>(null)
 const workspaceMode = ref<WorkspaceMode>('detail')
 const taskFavorite = ref<FavoritePrompt | null>(null)
-const mobileView = ref<'list' | 'panel'>('list')
+const assetPanelVisible = ref(false)
 const viewportWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1440)
 
 const categoryManagerVisible = ref(false)
 const tagManagerVisible = ref(false)
+const shareExportVisible = ref(false)
+const shareExportFavorite = ref<FavoritePrompt | null>(null)
 
 const isPageLayout = computed(() => props.layout === 'page')
 const isMobile = computed(() => viewportWidth.value < 1024)
-const useDrawerPanel = computed(() => isPageLayout.value && !isMobile.value)
-const drawerWidth = computed(() => Math.min(760, Math.max(560, Math.round(viewportWidth.value * 0.42))))
 
 const pageSize = computed(() => {
   if (isPageLayout.value) {
@@ -796,75 +572,14 @@ const actionMenuOptions = computed(() => [
   },
 ])
 
-const fullscreenVisible = computed({
-  get: () => fullscreenFavorite.value !== null,
-  set: (value: boolean) => {
-    if (!value) {
-      fullscreenFavorite.value = null
-    }
-  },
-})
-
-const fullscreenOriginalContent = computed(() => {
-  if (!fullscreenFavorite.value) {
-    return ''
+const assetPanelFavorite = computed(() => {
+  if (workspaceMode.value === 'edit') {
+    return taskFavorite.value
   }
-
-  const legacyOriginal = (fullscreenFavorite.value as Record<string, unknown>).originalContent
-  if (typeof legacyOriginal === 'string' && legacyOriginal.trim().length > 0) {
-    return legacyOriginal
+  if (workspaceMode.value === 'detail') {
+    return selectedFavorite.value
   }
-
-  return fullscreenFavorite.value.metadata?.originalContent ?? ''
-})
-
-const fullscreenDialogTitle = computed(() => {
-  if (!fullscreenFavorite.value) {
-    return t('favorites.manager.preview.title')
-  }
-
-  const title = fullscreenFavorite.value.title?.trim()
-  const categoryName = fullscreenFavorite.value.category
-    ? getCategoryById(fullscreenFavorite.value.category)?.name?.trim()
-    : ''
-  const updatedLabel = t('favorites.manager.preview.updatedAt', { time: formatDate(fullscreenFavorite.value.updatedAt) })
-
-  return [
-    title && title.length > 0 ? title : t('favorites.manager.preview.title'),
-    categoryName && categoryName.length > 0 ? categoryName : null,
-    updatedLabel,
-  ].filter(Boolean).join(' · ')
-})
-
-const paneTitle = computed(() => {
-  if (workspaceMode.value === 'edit') return t('favorites.dialog.editTitle')
-  if (workspaceMode.value === 'create') return t('favorites.dialog.createTitle')
-  if (workspaceMode.value === 'import') return t('favorites.manager.importDialog.title')
-  return t('favorites.manager.preview.title')
-})
-
-const showPaneHeader = computed(() => workspaceMode.value !== 'detail')
-
-const closeWorkspacePanel = () => {
-  workspaceMode.value = 'detail'
-  taskFavorite.value = null
-
-  if (useDrawerPanel.value) {
-    selectedFavorite.value = null
-  }
-
-  if (isMobile.value) {
-    mobileView.value = 'list'
-  }
-}
-
-const drawerVisible = computed({
-  get: () => useDrawerPanel.value && (workspaceMode.value !== 'detail' || selectedFavorite.value !== null),
-  set: (value: boolean) => {
-    if (!value) {
-      closeWorkspacePanel()
-    }
-  },
+  return null
 })
 
 const syncSelectionWithCurrentView = () => {
@@ -878,9 +593,7 @@ const syncSelectionWithCurrentView = () => {
   if (filteredFavorites.value.length === 0) {
     if (workspaceMode.value === 'detail') {
       selectedFavorite.value = null
-      if (isMobile.value) {
-        mobileView.value = 'list'
-      }
+      assetPanelVisible.value = false
     }
     return
   }
@@ -897,39 +610,17 @@ const syncSelectionWithCurrentView = () => {
     ? paginatedFavorites.value.some((favorite) => favorite.id === selectedId)
     : false
 
-  if (isMobile.value) {
-    if (!selectedInFiltered) {
-      selectedFavorite.value = null
-      mobileView.value = 'list'
-      return
+  if (!selectedInFiltered) {
+    selectedFavorite.value = null
+    if (workspaceMode.value === 'detail') {
+      assetPanelVisible.value = false
     }
-
-    if (mobileView.value === 'panel' && !selectedInPage) {
-      selectedFavorite.value = paginatedFavorites.value[0] || filteredFavorites.value[0] || null
-    }
-    return
-  }
-
-  if (useDrawerPanel.value) {
-    if (!selectedId) {
-      return
-    }
-
-    if (!selectedInPage) {
-      selectedFavorite.value = null
-      return
-    }
-
-    selectedFavorite.value = paginatedFavorites.value.find((favorite) => favorite.id === selectedId) || selectedFavorite.value
     return
   }
 
   if (selectedInPage) {
     selectedFavorite.value = paginatedFavorites.value.find((favorite) => favorite.id === selectedId) || selectedFavorite.value
-    return
   }
-
-  selectedFavorite.value = paginatedFavorites.value[0] || filteredFavorites.value[0] || null
 }
 
 watch(
@@ -938,7 +629,6 @@ watch(
     filteredFavorites.value.length,
     currentPage.value,
     isMobile.value,
-    useDrawerPanel.value,
     props.active,
     workspaceMode.value,
   ],
@@ -960,10 +650,9 @@ watch(
   () => props.active,
   (active) => {
     if (!active) {
-      mobileView.value = 'list'
+      assetPanelVisible.value = false
       workspaceMode.value = 'detail'
       taskFavorite.value = null
-      fullscreenFavorite.value = null
       return
     }
 
@@ -1049,9 +738,7 @@ const openPanel = (mode: WorkspaceMode, favorite?: FavoritePrompt | null) => {
     taskFavorite.value = null
   }
 
-  if (isMobile.value) {
-    mobileView.value = mode === 'detail' && !selectedFavorite.value ? 'list' : 'panel'
-  }
+  assetPanelVisible.value = mode !== 'detail' || Boolean(selectedFavorite.value)
 }
 
 const handleCategoryUpdated = async () => {
@@ -1066,39 +753,17 @@ const openImportPanel = () => {
   openPanel('import')
 }
 
-const handleTaskCancel = () => {
-  if (useDrawerPanel.value) {
-    closeWorkspacePanel()
-    return
-  }
-
-  workspaceMode.value = 'detail'
-  taskFavorite.value = null
-
-  if (isMobile.value) {
-    mobileView.value = selectedFavorite.value ? 'panel' : 'list'
-  }
-}
-
 const handleEditorSaved = async (favoriteId: string) => {
   await loadFavorites()
   const updatedFavorite = favorites.value.find((favorite) => favorite.id === favoriteId) || null
   selectedFavorite.value = updatedFavorite
   workspaceMode.value = 'detail'
   taskFavorite.value = null
-
-  if (isMobile.value) {
-    mobileView.value = updatedFavorite ? 'panel' : 'list'
-  }
+  assetPanelVisible.value = Boolean(updatedFavorite)
 }
 
 const handleImportCompleted = async () => {
   await loadFavorites()
-
-  if (useDrawerPanel.value) {
-    closeWorkspacePanel()
-    return
-  }
 
   if (!selectedFavorite.value && filteredFavorites.value.length > 0) {
     selectedFavorite.value = filteredFavorites.value[0]
@@ -1106,38 +771,10 @@ const handleImportCompleted = async () => {
 
   workspaceMode.value = 'detail'
   taskFavorite.value = null
-
-  if (isMobile.value) {
-    mobileView.value = selectedFavorite.value ? 'panel' : 'list'
-  }
+  assetPanelVisible.value = false
 }
 
-const handleSelectFavorite = (favorite: FavoritePrompt) => {
-  selectedFavorite.value = favorite
-  openPanel('detail', favorite)
-}
-
-const handleBackToList = () => {
-  if (useDrawerPanel.value) {
-    closeWorkspacePanel()
-    return
-  }
-
-  mobileView.value = 'list'
-}
-
-const handleOpenFullscreenFavorite = (favorite: FavoritePrompt) => {
-  fullscreenFavorite.value = favorite
-}
-
-const handleFullscreenCopy = (_content: string, type: 'content' | 'reasoning' | 'all') => {
-  const successMessages = {
-    content: t('favorites.manager.actions.copiedOptimized'),
-    reasoning: t('favorites.manager.actions.copiedReasoning'),
-    all: t('favorites.manager.actions.copiedAll'),
-  } as const
-  message.success(successMessages[type])
-}
+const handleSelectFavorite = (favorite: FavoritePrompt) => openPanel('detail', favorite)
 
 const handleFavoriteDetailUpdated = async (favoriteId: string) => {
   await loadFavorites()
@@ -1145,10 +782,16 @@ const handleFavoriteDetailUpdated = async (favoriteId: string) => {
   if (updatedFavorite) {
     selectedFavorite.value = updatedFavorite
     taskFavorite.value = workspaceMode.value === 'edit' ? updatedFavorite : taskFavorite.value
-    if (fullscreenFavorite.value?.id === favoriteId) {
-      fullscreenFavorite.value = updatedFavorite
-    }
   }
+}
+
+const handleExternalFavoriteUpdated = (event: Event) => {
+  if (!props.active) return
+
+  const detail = getFavoriteUpdatedEventDetail(event)
+  if (!detail) return
+
+  void loadFavorites()
 }
 
 const handleEditFavorite = (favorite: FavoritePrompt) => {
@@ -1172,10 +815,6 @@ const bumpUseCountLocally = (id: string) => {
     if (taskFavorite.value?.id === id) {
       taskFavorite.value = updated
     }
-
-    if (fullscreenFavorite.value?.id === id) {
-      fullscreenFavorite.value = updated
-    }
   }
 }
 
@@ -1196,10 +835,6 @@ const loadFavorites = async () => {
 
     if (taskFavorite.value) {
       taskFavorite.value = data.find((item) => item.id === taskFavorite.value?.id) || null
-    }
-
-    if (fullscreenFavorite.value) {
-      fullscreenFavorite.value = data.find((item) => item.id === fullscreenFavorite.value?.id) || null
     }
   } catch (error) {
     console.error('[FavoriteManager] Failed to load favorites:', error)
@@ -1254,6 +889,11 @@ const handleCopyFavorite = async (favorite: FavoritePrompt) => {
   await incrementFavoriteUseCount(favorite.id)
 }
 
+const handleShareFavorite = (favorite: FavoritePrompt) => {
+  shareExportFavorite.value = favorite
+  shareExportVisible.value = true
+}
+
 const incrementFavoriteUseCount = async (id: string) => {
   const servicesValue = services?.value
   if (servicesValue?.favoriteManager) {
@@ -1262,34 +902,32 @@ const incrementFavoriteUseCount = async (id: string) => {
   bumpUseCountLocally(id)
 }
 
-const handleDeleteFavorite = (favorite: FavoritePrompt) => {
+const handleDeleteFavorite = async (favorite: FavoritePrompt) => {
   const deletingOpenFavorite = selectedFavorite.value?.id === favorite.id || taskFavorite.value?.id === favorite.id
-  const confirmed = typeof window === 'undefined'
-    ? true
-    : window.confirm(t('favorites.manager.actions.deleteConfirm', { title: favorite.title }))
+  const confirmed = await confirmDialog.warning({
+    title: t('common.warning'),
+    content: t('favorites.manager.actions.deleteConfirm', { title: favorite.title }),
+    positiveText: t('common.confirm'),
+    negativeText: t('common.cancel'),
+  })
 
   if (!confirmed) return
 
-  ;(async () => {
-    try {
-      const servicesValue = services?.value
-      if (servicesValue?.favoriteManager) {
-        await servicesValue.favoriteManager.deleteFavorite(favorite.id)
-        message.success(t('favorites.manager.actions.deleteSuccess'))
-        await loadFavorites()
-      } else {
-        message.warning(t('favorites.manager.messages.unavailable'))
-      }
-    } catch (error) {
-      message.error(buildErrorMessage(t('favorites.manager.actions.deleteFailed'), error))
+  try {
+    const servicesValue = services?.value
+    if (servicesValue?.favoriteManager) {
+      await servicesValue.favoriteManager.deleteFavorite(favorite.id)
+      message.success(t('favorites.manager.actions.deleteSuccess'))
+      await loadFavorites()
+    } else {
+      message.warning(t('favorites.manager.messages.unavailable'))
     }
-  })()
+  } catch (error) {
+    message.error(buildErrorMessage(t('favorites.manager.actions.deleteFailed'), error))
+  }
 
   if (selectedFavorite.value?.id === favorite.id) {
     selectedFavorite.value = null
-    if (workspaceMode.value === 'detail' && isMobile.value) {
-      mobileView.value = 'list'
-    }
   }
 
   if (taskFavorite.value?.id === favorite.id) {
@@ -1297,12 +935,10 @@ const handleDeleteFavorite = (favorite: FavoritePrompt) => {
     workspaceMode.value = 'detail'
   }
 
-  if (fullscreenFavorite.value?.id === favorite.id) {
-    fullscreenFavorite.value = null
-  }
-
-  if (deletingOpenFavorite && useDrawerPanel.value) {
-    closeWorkspacePanel()
+  if (deletingOpenFavorite) {
+    assetPanelVisible.value = false
+    workspaceMode.value = 'detail'
+    taskFavorite.value = null
   }
 }
 
@@ -1332,7 +968,7 @@ const handleUseFavorite = async (
   }
 }
 
-const handleActionMenuSelect = (key: string) => {
+const handleActionMenuSelect = async (key: string) => {
   switch (key) {
     case 'manageTags':
       tagManagerVisible.value = true
@@ -1344,29 +980,30 @@ const handleActionMenuSelect = (key: string) => {
       handleExportFavorites()
       break
     case 'clear': {
-      const confirmed = typeof window === 'undefined'
-        ? true
-        : window.confirm(t('favorites.manager.actions.clearConfirm'))
+      const confirmed = await confirmDialog.warning({
+        title: t('common.warning'),
+        content: t('favorites.manager.actions.clearConfirm'),
+        positiveText: t('common.confirm'),
+        negativeText: t('common.cancel'),
+      })
 
       if (!confirmed) {
         break
       }
 
-      ;(async () => {
-        try {
-          const servicesValue = services?.value
-          if (servicesValue?.favoriteManager) {
-            const allIds = favorites.value.map((favorite) => favorite.id)
-            await servicesValue.favoriteManager.deleteFavorites(allIds)
-            message.success(t('favorites.manager.actions.clearSuccess'))
-            await loadFavorites()
-          } else {
-            message.warning(t('favorites.manager.messages.unavailable'))
-          }
-        } catch (error) {
-          message.error(buildErrorMessage(t('favorites.manager.actions.clearFailed'), error))
+      try {
+        const servicesValue = services?.value
+        if (servicesValue?.favoriteManager) {
+          const allIds = favorites.value.map((favorite) => favorite.id)
+          await servicesValue.favoriteManager.deleteFavorites(allIds)
+          message.success(t('favorites.manager.actions.clearSuccess'))
+          await loadFavorites()
+        } else {
+          message.warning(t('favorites.manager.messages.unavailable'))
         }
-      })()
+      } catch (error) {
+        message.error(buildErrorMessage(t('favorites.manager.actions.clearFailed'), error))
+      }
       break
     }
   }
@@ -1376,15 +1013,25 @@ const handleExportFavorites = async () => {
   try {
     const servicesValue = services?.value
     if (servicesValue?.favoriteManager) {
-      const exportData = await servicesValue.favoriteManager.exportFavorites()
-      if (exportData) {
-        const blob = new Blob([exportData], { type: 'application/json' })
-        const url = URL.createObjectURL(blob)
-        const anchor = document.createElement('a')
-        anchor.href = url
-        anchor.download = `favorites_${new Date().toISOString().split('T')[0]}.json`
-        anchor.click()
-        URL.revokeObjectURL(url)
+      const exportPackage = await createFavoriteResourcePackage({
+        favoriteManager: servicesValue.favoriteManager,
+        imageStorageServices: [
+          servicesValue.favoriteImageStorageService,
+          servicesValue.imageStorageService,
+        ],
+      })
+      const url = URL.createObjectURL(exportPackage.blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = `favorites_${new Date().toISOString().split('T')[0]}.po-favorites.zip`
+      anchor.click()
+      URL.revokeObjectURL(url)
+
+      if (exportPackage.missingResourceIds.length > 0) {
+        message.warning(t('favorites.manager.actions.exportPartialSuccess', {
+          count: exportPackage.missingResourceIds.length,
+        }))
+      } else {
         message.success(t('favorites.manager.actions.exportSuccess'))
       }
     } else {
@@ -1393,32 +1040,6 @@ const handleExportFavorites = async () => {
   } catch (error) {
     message.error(buildErrorMessage(t('favorites.manager.actions.exportFailed'), error))
   }
-}
-
-const formatDate = (timestamp: number) => {
-  const date = new Date(timestamp)
-  const now = new Date()
-  const diff = now.getTime() - date.getTime()
-  const days = Math.floor(diff / (1000 * 60 * 60 * 24))
-
-  if (days === 0) {
-    const hours = Math.floor(diff / (1000 * 60 * 60))
-    if (hours === 0) {
-      const minutes = Math.floor(diff / (1000 * 60))
-      return minutes <= 1 ? t('favorites.manager.time.justNow') : t('favorites.manager.time.minutesAgo', { minutes })
-    }
-    return t('favorites.manager.time.hoursAgo', { hours })
-  }
-
-  if (days === 1) {
-    return t('favorites.manager.time.yesterday')
-  }
-
-  if (days < 7) {
-    return t('favorites.manager.time.daysAgo', { days })
-  }
-
-  return date.toLocaleDateString()
 }
 
 const updateViewportWidth = () => {
@@ -1433,6 +1054,7 @@ onMounted(async () => {
   updateViewportWidth()
   if (typeof window !== 'undefined') {
     window.addEventListener('resize', debouncedViewportUpdate)
+    window.addEventListener(FAVORITE_UPDATED_EVENT, handleExternalFavoriteUpdated)
   }
 
   try {
@@ -1463,6 +1085,7 @@ watch(
 onBeforeUnmount(() => {
   if (typeof window !== 'undefined') {
     window.removeEventListener('resize', debouncedViewportUpdate)
+    window.removeEventListener(FAVORITE_UPDATED_EVENT, handleExternalFavoriteUpdated)
   }
 })
 </script>
@@ -1568,21 +1191,14 @@ onBeforeUnmount(() => {
 }
 
 .favorites-manager-workspace {
-  display: grid;
+  display: block;
   flex: 1;
   min-height: 0;
-  grid-template-columns: 420px minmax(0, 1fr);
-  gap: 16px;
   overflow: hidden;
 }
 
 .favorites-manager-workspace--mobile {
   display: block;
-}
-
-.favorites-manager-workspace--page {
-  display: block;
-  grid-template-columns: none;
 }
 
 .favorites-manager-pane {
@@ -1622,10 +1238,6 @@ onBeforeUnmount(() => {
   gap: 12px;
 }
 
-.favorites-manager-back {
-  margin-right: auto;
-}
-
 .favorites-manager-scroll {
   flex: 1 1 auto;
   height: auto;
@@ -1645,19 +1257,6 @@ onBeforeUnmount(() => {
   align-items: stretch;
 }
 
-.favorites-manager-task {
-  flex: 1 1 auto;
-  height: auto;
-  min-height: 0;
-  overflow: auto;
-}
-
-.favorites-manager-task--drawer {
-  min-height: 100%;
-  padding: 16px;
-  overflow: visible;
-}
-
 .favorites-manager-empty {
   display: flex;
   height: 100%;
@@ -1670,12 +1269,6 @@ onBeforeUnmount(() => {
   display: flex;
   justify-content: center;
   padding-top: 4px;
-}
-
-@media (max-width: 1279px) {
-  .favorites-manager-workspace {
-    grid-template-columns: 360px minmax(0, 1fr);
-  }
 }
 
 @media (max-width: 1023px) {
@@ -1717,8 +1310,7 @@ onBeforeUnmount(() => {
   }
 
   .favorites-manager-shell--page .favorites-manager-workspace,
-  .favorites-manager-shell--page .favorites-manager-pane,
-  .favorites-manager-shell--page .favorites-manager-task {
+  .favorites-manager-shell--page .favorites-manager-pane {
     overflow: visible;
   }
 

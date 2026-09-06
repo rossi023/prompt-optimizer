@@ -26,10 +26,38 @@ const messages = {
       "section": "提供商配置",
       "label": "提供商",
       "placeholder": "选择提供商",
-      "openaiHint": "官方 OpenAI API 入口。如果你想接入自定义 Base URL、第三方兼容服务或本地模型，请选择“Custom API (OpenAI Compatible)”。",
+      "more": "更多",
+      "openaiCompatibleCustomLabel": "OpenAI 兼容（自定义）",
+      "openaiHint": "官方 OpenAI API 入口。如果你想接入自定义 Base URL、第三方兼容服务或本地模型，请选择“OpenAI 兼容（自定义）”。",
       "customApiHint": "用于接入自定义 OpenAI 兼容接口。你可以配置 Base URL、自定义模型名，并选择 Chat Completions 或 Responses 请求风格。",
       "dashscopeHint": "阿里百炼已支持 OpenAI 兼容的 Chat Completions 与 Responses 接口。当前可直接在这里切换请求风格进行使用。",
-      "minimaxHint": "默认地址是 MiniMax 海外 OpenAI 兼容接口。国内用户请将 API 地址改为 https://api.minimaxi.com/v1；这里不要使用 MiniMax 的 Anthropic 格式地址。"
+      "xiaomiMimoHint": "默认使用小米 MiMo Token Plan 中国区地址：https://token-plan-cn.xiaomimimo.com/v1。也可按订阅管理页改为新加坡 https://token-plan-sgp.xiaomimimo.com/v1 或阿姆斯特丹 https://token-plan-ams.xiaomimimo.com/v1。环境变量预置使用 VITE_MIMO_TOKEN_PLAN_*。",
+      "minimaxHint": "默认地址是 MiniMax 海外 OpenAI 兼容接口。国内用户请将 API 地址改为 https://api.minimaxi.com/v1；这里不要使用 MiniMax 的 Anthropic 格式地址。",
+      "chromeBuiltInHint": "使用 Chrome 自带的本地 Gemini Nano 模型，无需第三方 API Key。模型由 Chrome 管理，首次使用可能需要用户明确下载。目前 Chrome 官方仅支持英语、西班牙语、日语输出，本提供商会默认按英语会话兼容处理。"
+    },
+    "chromeBuiltIn": {
+      "downloadAction": "下载/准备本地模型",
+      "recheckAction": "重新检测",
+      "preparing": "正在准备 Chrome 本地模型...",
+      "ready": "Chrome 本地模型已可用",
+      "prepareFailed": "准备 Chrome 本地模型失败：{error}",
+      "statusWithError": "{status}（{error}）",
+      "title": {
+        "checking": "正在检测 Chrome 本地 AI",
+        "available": "Chrome 本地 AI 已可用",
+        "downloadable": "需要下载 Chrome 本地模型",
+        "downloading": "Chrome 正在下载本地模型",
+        "unavailable": "当前环境暂不支持",
+        "api-missing": "当前浏览器没有 Chrome Prompt API"
+      },
+      "status": {
+        "checking": "正在检查浏览器是否提供 Prompt API 以及本地模型是否已准备好。",
+        "available": "可以直接使用，无需填写 API 地址或密钥。当前会按英语输出能力创建会话；Chrome 官方目前仅支持英语、西班牙语、日语输出。",
+        "downloadable": "你的 Chrome 支持该能力，但本地模型尚未下载。只有点击下方按钮后，才会请求 Chrome 下载模型。",
+        "downloading": "Chrome 正在下载模型。下载可能需要一些时间，完成后可以直接测试或保存启用。",
+        "unavailable": "当前浏览器、设备、用户配置或企业策略可能不支持该能力。你仍然可以配置其他文本模型提供商。",
+        "api-missing": "请在支持 Prompt API 的 Chrome 中打开 Web 版。其他浏览器会安全降级，不会报错。"
+      }
     },
     "connection": {
       "accountId": "账户 ID",
@@ -37,6 +65,19 @@ const messages = {
       "requestStyleOptions": {
         "chatCompletions": "Chat Completions",
         "responses": "Responses"
+      }
+    },
+    "customHeaders": {
+      "label": "自定义请求头",
+      "namePlaceholder": "Header 名称，如 x-auth-token",
+      "valuePlaceholder": "Header 值",
+      "add": "添加请求头",
+      "validationError": "自定义请求头配置无效：{details}",
+      "validation": {
+        "invalid-name": "Header 名称格式无效",
+        "forbidden-name": "该 Header 由客户端或浏览器管理，不能覆盖",
+        "missing-value": "Header 值不能为空",
+        "invalid-value": "Header 值必须是文本、数字或布尔值"
       }
     },
     "model": {
@@ -69,7 +110,11 @@ const messages = {
         "belowMin": "参数值不能小于 {min}",
         "aboveMax": "参数值不能大于 {max}",
         "mustBeInteger": "参数值必须是整数"
-      }
+      },
+      "formatJson": "JSON",
+      "formatString": "字符串",
+      "parsedAsObject": "已解析为 Object ✓",
+      "invalidJson": "无效 JSON，将作为字符串发送"
     },
     "modelKeyPlaceholder": "请输入模型标识",
     "displayNamePlaceholder": "请输入显示名称",
@@ -151,6 +196,14 @@ const messages = {
       "configure": "配置模型",
       "noModels": "请配置模型",
       "noAvailableModels": "暂无可用模型"
+    },
+    "quickSwitch": {
+      "title": "切换当前模型",
+      "placeholder": "选择模型",
+      "modelTagTitle": "点击切换当前配置的模型",
+      "fetchFailed": "获取在线模型列表失败：{error}，可继续选择本地默认模型。",
+      "updateSuccess": "已切换为 {model}",
+      "updateFailed": "切换模型失败：{error}"
     },
     "manager": {
       "displayName": "例如: 自定义模型",

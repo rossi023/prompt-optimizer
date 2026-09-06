@@ -3,6 +3,7 @@
         <div class="workspace-page-tools">
             <WorkspaceUtilityMenu
                 :disabled="displayAdapter.displayedIsOptimizing.value || isIterating || isAnyVariantRunning"
+                :source="resolveSourceAssetRef(proMultiSession.origin, proMultiSession.assetBinding)"
                 test-id="pro-multi-workspace-utility-menu"
                 @clear="handleClearContent"
             />
@@ -20,9 +21,12 @@
                     :size="12"
                 >
                     <!-- 会话管理器 (系统模式专属，也是消息输入界面) -->
-                    <NCard
+                    <TestSourceLinkedCard
                         :style="{ flexShrink: 0, overflow: 'auto' }"
                         content-style="padding: 0;"
+                        :feedback-key="sourceAreaFeedback.original.key"
+                        :feedback-tone="sourceAreaFeedback.original.tone"
+                        :source-tone="sourceAreaFeedback.original.sourceTone"
                     >
                         <ConversationManager
                             :messages="conversationMessages"
@@ -39,9 +43,9 @@
                             :scan-variables="scanVariables"
                             :optimization-mode="optimizationMode"
                             :tool-count="toolCount"
-                            @open-variable-manager="emit('open-variable-manager')"
+                            @open-variable-manager="handleOpenVariableManager"
                             @open-context-editor="handleOpenContextEditor"
-                            @open-tool-manager="emit('open-tool-manager')"
+                            @open-tool-manager="handleOpenToolManager"
                             :enable-tool-management="true"
                             :collapsible="true"
                             :max-height="300"
@@ -53,7 +57,7 @@
                             @variable-extracted="handleVariableExtracted"
                             @add-missing-variable="handleAddMissingVariable"
                         />
-                    </NCard>
+                    </TestSourceLinkedCard>
 
                     <!-- 优化控制区 -->
                     <NCard :style="{ flexShrink: 0 }" size="small">
@@ -62,9 +66,17 @@
                             <NFlex :size="12" :wrap="false">
                                 <!-- 优化模型选择 -->
                                 <NFlex vertical :size="4" style="flex: 1">
-                                    <NText :depth="3" style="font-size: 12px">
-                                        {{ $t('promptOptimizer.optimizeModel') }}
-                                    </NText>
+                                    <NFlex align="center" :size="6" :wrap="false">
+                                        <NText :depth="3" style="font-size: 12px; flex-shrink: 0;">
+                                            {{ $t('promptOptimizer.optimizeModel') }}
+                                        </NText>
+                                        <TextModelQuickSwitch
+                                            :model-key="selectedOptimizeModelKeyModel"
+                                            :options="modelSelection.textModelOptions.value"
+                                            :refresh-models="modelSelection.refreshTextModels"
+                                            :disabled="conversationOptimization.isOptimizing.value"
+                                        />
+                                    </NFlex>
                                     <SelectWithConfig
                                         v-model="selectedOptimizeModelKeyModel"
                                         :options="modelSelection.textModelOptions.value"
@@ -105,9 +117,12 @@
                     </NCard>
 
                     <!-- 优化结果面板 -->
-                    <NCard
+                    <TestSourceLinkedCard
                         :style="{ flex: 1, minHeight: '200px', overflow: 'hidden' }"
                         content-style="height: 100%; max-height: 100%; overflow: hidden;"
+                        :feedback-key="sourceAreaFeedback.workspace.key"
+                        :feedback-tone="sourceAreaFeedback.workspace.tone"
+                        :source-tone="sourceAreaFeedback.workspace.sourceTone"
                     >
                         <template v-if="displayAdapter.isInMessageOptimizationMode.value">
                             <PromptPanelUI
@@ -122,6 +137,9 @@
                                 @update:selectedIterateTemplate="emit('update:selectedIterateTemplate', $event)"
                                 :versions="displayAdapter.displayedVersions.value"
                                 :current-version-id="displayAdapter.displayedCurrentVersionId.value ?? undefined"
+                                :source-feedback-key="sourceAreaFeedback.workspace.key"
+                                :source-feedback-tone="sourceAreaFeedback.workspace.tone"
+                                :source-feedback-version="sourceAreaFeedback.workspace.resolvedVersion"
                                 :show-apply-button="displayAdapter.isInMessageOptimizationMode.value"
                                  :optimization-mode="optimizationMode"
                                  :advanced-mode-enabled="true"
@@ -130,10 +148,11 @@
                                 @openTemplateManager="handleOpenTemplateManager"
                                 @switchVersion="handleSwitchVersion"
                                   @switchToV0="handleSwitchToV0"
-                                  @save-favorite="emit('save-favorite', $event)"
+                                  @save-favorite="handleSaveFavorite"
                                   @open-preview="handleOpenPromptPreview"
                                   @apply-to-conversation="handleApplyToConversation"
                                  @apply-improvement="handleApplyImprovement"
+                                 @apply-patch="handleApplyLocalPatch"
                                  @save-local-edit="handleSaveLocalEdit"
                              />
                         </template>
@@ -144,7 +163,7 @@
                                 size="large"
                             />
                         </template>
-                    </NCard>
+                    </TestSourceLinkedCard>
                 </NFlex>
             </div>
 
@@ -173,7 +192,7 @@
                         :input-mode="inputMode"
                         :button-size="buttonSize"
                         @variable-change="handleVariableChange"
-                        @save-to-global="(name: string, value: string) => emit('save-to-global', name, value)"
+                        @save-to-global="handleSaveToGlobal"
                         @temporary-variable-remove="handleVariableRemove"
                         @temporary-variables-clear="handleVariablesClear"
                     />
@@ -265,14 +284,27 @@
                                     :class="{ 'variant-cell__controls--stacked': useStackedVariantControls }"
                                 >
                                     <div class="variant-cell__meta">
-                                        <NTag size="small" :bordered="false" class="variant-cell__label">
-                                            {{ getVariantLabel(id) }}
-                                        </NTag>
+                                        <TestVariantSourceTag
+                                            class="variant-cell__label"
+                                            :variant-label="getVariantLabel(id)"
+                                            :selection="variantVersionModels[id].value"
+                                            :resolved-version="getVariantResolvedVersion(id)"
+                                            :labels="getTestPanelVersionLabels()"
+                                            :feedback-key="variantSourceFeedback[id].key"
+                                            :feedback-tone="variantSourceFeedback[id].tone"
+                                            @activate="activateVariantSource(id)"
+                                        />
                                         <CompareRoleBadge
                                             v-if="activeVariantIds.length >= 2"
                                             :entry="compareRoleEntryMap[id]"
                                             clickable
                                             @click="openCompareRoleConfig"
+                                        />
+                                        <TextModelQuickSwitch
+                                            :model-key="variantModelKeyModels[id].value"
+                                            :options="modelSelection.textModelOptions.value"
+                                            :refresh-models="modelSelection.refreshTextModels"
+                                            :disabled="variantRunning[id] || isAnyVariantRunning"
                                         />
                                     </div>
 
@@ -282,7 +314,7 @@
                                             :options="versionOptions"
                                             :disabled="variantRunning[id] || isAnyVariantRunning"
                                             :test-id="getVariantVersionTestId(id)"
-                                            @update:value="(value) => { variantVersionModels[id].value = value as TestPanelVersionValue }"
+                                            @update:value="(value) => handleVariantVersionChange(id, value)"
                                         />
                                         <div class="variant-cell__model">
                                             <SelectWithConfig
@@ -299,26 +331,23 @@
                                         </div>
 
                                         <div class="variant-cell__run">
-                                            <NTooltip trigger="hover">
-                                                <template #trigger>
-                                                    <NButton
-                                                        type="primary"
-                                                        size="small"
-                                                        circle
-                                                        :loading="variantRunning[id]"
-                                                        :disabled="isAnyVariantRunning && !variantRunning[id]"
-                                                        @click="() => runVariant(id)"
-                                                        :data-testid="getVariantRunTestId(id)"
-                                                    >
-                                                        <template #icon>
-                                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
-                                                                <path d="M8 5v14l11-7z" />
-                                                            </svg>
-                                                        </template>
-                                                    </NButton>
-                                                </template>
-                                                {{ t('test.layout.runThisColumn') }}
-                                            </NTooltip>
+                                            <ThemedTooltip :label="t('test.layout.runThisColumn')">
+                                                <NButton
+                                                    type="primary"
+                                                    size="small"
+                                                    circle
+                                                    :loading="variantRunning[id]"
+                                                    :disabled="isAnyVariantRunning && !variantRunning[id]"
+                                                    @click="() => runVariant(id)"
+                                                    :data-testid="getVariantRunTestId(id)"
+                                                >
+                                                    <template #icon>
+                                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+                                                            <path d="M8 5v14l11-7z" />
+                                                        </svg>
+                                                    </template>
+                                                </NButton>
+                                            </ThemedTooltip>
                                         </div>
                                     </div>
                                 </div>
@@ -364,6 +393,16 @@
                                                     v-if="hasVariantResult(id)"
                                                     class="output-evaluation-entry"
                                                 >
+                                                    <SaveTestResultExampleButton
+                                                        sub-mode-key="pro-multi"
+                                                        :variant-id="id"
+                                                        :content="displayAdapter.displayedOptimizedPrompt.value || conversationOptimization.optimizedPrompt.value || ''"
+                                                        :original-content="conversationOptimization.selectedMessage.value?.originalContent || conversationOptimization.selectedMessage.value?.content || ''"
+                                                        function-mode="context"
+                                                        optimization-mode="system"
+                                                        :disabled="variantRunning[id]"
+                                                        :test-id="`save-test-example-pro-multi-${id}`"
+                                                    />
                                                     <EvaluationScoreBadge
                                                         v-if="getResultEvaluationProps(id).hasEvaluation || getResultEvaluationProps(id).isEvaluating"
                                                         :score="getResultEvaluationProps(id).score"
@@ -483,7 +522,6 @@ import {
     NEmpty,
     NRadioGroup,
     NRadioButton,
-    NTooltip,
     NTag,
 } from "naive-ui";
 import PromptPanelUI from "../PromptPanel.vue";
@@ -491,8 +529,12 @@ import PromptPreviewPanel from "../PromptPreviewPanel.vue";
 import ConversationTestPanel from "./ConversationTestPanel.vue";
 import ConversationManager from "./ConversationManager.vue";
 import OutputDisplay from "../OutputDisplay.vue";
+import SaveTestResultExampleButton from '../SaveTestResultExampleButton.vue'
 import SelectWithConfig from "../SelectWithConfig.vue";
+import TextModelQuickSwitch from "../TextModelQuickSwitch.vue";
 import TestPanelVersionSelect from '../TestPanelVersionSelect.vue'
+import TestSourceLinkedCard from '../TestSourceLinkedCard.vue'
+import TestVariantSourceTag from '../TestVariantSourceTag.vue'
 import ToolCallDisplay from "../ToolCallDisplay.vue";
 import {
     AnalyzeActionIcon,
@@ -505,10 +547,12 @@ import {
 } from '../evaluation'
 import { buildCompareToolbarStatus } from '../evaluation/compare-ui'
 import WorkspaceUtilityMenu from '../common/WorkspaceUtilityMenu.vue'
+import ThemedTooltip from '../common/ThemedTooltip.vue'
+import { resolveSourceAssetRef } from '../../utils/source-asset'
 import { useConversationOptimization } from '../../composables/prompt/useConversationOptimization'
 import { usePromptDisplayAdapter } from '../../composables/prompt/usePromptDisplayAdapter'
 import { useTemporaryVariables } from '../../composables/variable/useTemporaryVariables'
-import { useCompareRoleConfig, useEvaluationHandler, provideEvaluation, provideProContext, buildCompareEvaluationPayload } from '../../composables/prompt'
+import { useCompareRoleConfig, useEvaluationHandler, provideEvaluation, provideProContext, buildCompareEvaluationPayload, useTestSourceAreaFeedback, useTestVariantSourceFeedback } from '../../composables/prompt'
 import { useLocalPromptPreviewPanel } from '../../composables/prompt/useLocalPromptPreviewPanel'
 import { useWorkspaceModelSelection } from '../../composables/workspaces/useWorkspaceModelSelection'
 import { useWorkspaceTemplateSelection } from '../../composables/workspaces/useWorkspaceTemplateSelection'
@@ -668,6 +712,12 @@ const appOpenContextEditor = inject<
     ((messagesOrTab?: ContextEditorOpenArg, variables?: Record<string, string>) => void) | null
 >('openContextEditor', null)
 
+// 注入 App 层统一的 open* 接口（Pro 工作区专有功能）
+const appOpenToolManager = inject<(() => void) | null>('openToolManager', null)
+const appOpenVariableManager = inject<((variableName?: string) => void) | null>('openVariableManager', null)
+const appHandleSaveFavorite = inject<((data: SaveFavoritePayload) => void) | null>('handleSaveFavorite', null)
+const appSaveToGlobal = inject<((name: string, value: string) => void) | null>('saveToGlobal', null)
+
  // Pro Multi: message list is session-owned (per-submode isolation).
  // Keep emitting update:optimizationContext only as a backward-compat hook for non-App hosts.
  const proMultiSession = useProMultiMessageSession()
@@ -718,6 +768,27 @@ const handleOpenContextEditor = (
     }
     // 兜底：旧链路（如果宿主仍通过 emit 打开编辑器）
     emit('open-context-editor')
+}
+
+// Pro 工作区专有功能的处理函数（优先使用 inject，emit 作为兜底）
+const handleOpenToolManager = () => {
+    if (appOpenToolManager) { appOpenToolManager(); return; }
+    emit('open-tool-manager')
+}
+
+const handleOpenVariableManager = () => {
+    if (appOpenVariableManager) { appOpenVariableManager(); return; }
+    emit('open-variable-manager')
+}
+
+const handleSaveFavorite = (data: SaveFavoritePayload) => {
+    if (appHandleSaveFavorite) { appHandleSaveFavorite(data); return; }
+    emit('save-favorite', data)
+}
+
+const handleSaveToGlobal = (name: string, value: string) => {
+    if (appSaveToGlobal) { appSaveToGlobal(name, value); return; }
+    emit('save-to-global', name, value)
 }
 
 // ✅ 优化模式：固定为 'system'（此组件专门用于系统模式优化）
@@ -1160,11 +1231,29 @@ const variantToolCalls = reactive<Record<TestVariantId, ToolCallResult[]>>({
     d: [],
 })
 
+const { variantSourceFeedback, pulseVariantSource } =
+    useTestVariantSourceFeedback<TestVariantId>(['a', 'b', 'c', 'd'])
+const { sourceAreaFeedback, pulseSourceAreaForSelection } =
+    useTestSourceAreaFeedback()
+
 const isAnyVariantRunning = computed(() =>
     activeVariantIds.value.some((id) => !!variantRunning[id]),
 )
 
 const getVariantLabel = (id: TestVariantId) => ({ a: 'A', b: 'B', c: 'C', d: 'D' }[id])
+
+const handleVariantVersionChange = (id: TestVariantId, value: string | number) => {
+    const selection = value as TestPanelVersionValue
+    variantVersionModels[id].value = selection
+    activateVariantSource(id)
+}
+
+const activateVariantSource = (id: TestVariantId) => {
+    const selection = variantVersionModels[id].value
+    const resolved = resolveSelectedMessageContent(selection)
+    pulseVariantSource(id, 'change')
+    pulseSourceAreaForSelection(selection, resolved.resolvedVersion, 'change')
+}
 
 const getVariantVersionTestId = (id: TestVariantId) => {
     if (id === 'a') return 'pro-multi-test-original-version-select'
@@ -1278,6 +1367,9 @@ const getVariantVersionLabel = (id: TestVariantId): string => {
     )
 }
 
+const getVariantResolvedVersion = (id: TestVariantId): number =>
+    resolveSelectedMessageContent(variantVersionModels[id].value).resolvedVersion
+
 const compareReadyVariantIds = computed(() =>
     activeVariantIds.value.filter((id) => hasVariantResult(id) && !isVariantStale(id))
 )
@@ -1365,6 +1457,8 @@ const getVariantTestInput = (id: TestVariantId): VariantTestInput | null => {
                 ? 'test.error.noOriginalPrompt'
                 : 'test.error.noOptimizedPrompt'
         toast.error(t(key))
+        pulseVariantSource(id, 'error')
+        pulseSourceAreaForSelection(variantVersionModels[id].value, resolved.resolvedVersion, 'error')
         return null
     }
 

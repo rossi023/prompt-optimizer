@@ -17,15 +17,15 @@
         :hljs="hljsInstance"
     >
         <div v-if="isInitializing" class="loading-container">
-            <div class="spinner"></div>
-            <p>{{ t("log.info.initializing") }}</p>
+            <NSpin size="medium" />
+            <NText depth="2">{{ t("log.info.initializing") }}</NText>
         </div>
         <div v-else-if="!services" class="loading-container error">
-            <p>{{ t("toast.error.appInitFailed") }}</p>
+            <NResult status="error" :title="t('toast.error.appInitFailed')" />
         </div>
         <div v-else-if="!isReady" class="loading-container">
-            <div class="spinner"></div>
-            <p>{{ t("log.info.initializing") }}</p>
+            <NSpin size="medium" />
+            <NText depth="2">{{ t("log.info.initializing") }}</NText>
         </div>
         <template v-else>
             <MainLayoutUI>
@@ -52,6 +52,7 @@
                         @open-data-manager="showDataManager = true"
                         @open-variables="handleOpenVariableManager()"
                         :favorites-active="isFavoritesRoute"
+                        :backup-reminder-due="dataBackupReminderDue"
                         :app-version="appVersion"
                         @open-website="openOfficialWebsite"
                         @open-docs="openDocumentationSite"
@@ -131,6 +132,7 @@
                 :content="saveFavoriteData?.content || ''"
                 :original-content="saveFavoriteData?.originalContent || ''"
                 :prefill="saveFavoriteData?.prefill"
+                :candidate-source="saveFavoriteData?.candidateSource"
                 :current-function-mode="routeFunctionMode"
                 :current-optimization-mode="selectedOptimizationMode"
                 @saved="handleSaveFavoriteComplete"
@@ -242,13 +244,18 @@ import {
     WORKSPACE_SUB_MODE_KEYS,
     normalizeWorkspacePath,
     parseWorkspaceRoutePath,
+    resolveWorkspacePathFallback,
 } from '../../router/workspaceRoutes';
 import { createExternalDataLoadingGate } from '../../utils/external-data-loading'
+import { openExternalUrl } from '../../utils/open-external-url'
 import { registerOptionalIntegrations } from '../../integrations/registerOptionalIntegrations';
 import { useI18n } from "vue-i18n";
 import {
     NConfigProvider,
     NGlobalStyle,
+    NResult,
+    NSpin,
+    NText,
 } from "naive-ui";
 import hljs from "highlight.js/lib/core";
 import jsonLang from "highlight.js/lib/languages/json";
@@ -298,6 +305,7 @@ import {
     useTemporaryVariables,
     // UI 相关
     useToast,
+    useConfirmDialog,
     useNaiveTheme,
      // 系统相关
      useAppInitializer,
@@ -329,10 +337,15 @@ import type { TemplateManagerTemplateType } from '../../composables/prompt/useTe
 
 // Data Transformation
 import { DataTransformer } from '../../utils/data-transformer'
+import { getProviderDisplayName, getTextModelConfigDisplayName } from '../../utils/provider-display'
+import {
+  DATA_BACKUP_STATUS_EVENT,
+  isDataBackupReminderDue,
+} from '../../utils/data-backup-reminder'
 
 // Types
 import type { ModelSelectOption, TestAreaPanelInstance } from '../../types'
-import { type IPromptService, type PromptRecordChain, type PatchOperation, type Template, type TemplateType, type FunctionMode, type BasicSubMode, type ProSubMode, type ImageSubMode, type OptimizationMode, type ConversationMessage, type ToolDefinition, type ContextEditorState, type ContextMode, type FavoritePrompt } from "@prompt-optimizer/core";
+import { type IPromptService, type PromptAssetBinding, type PromptSessionOrigin, type PromptRecordChain, type PatchOperation, type Template, type TemplateType, type FunctionMode, type BasicSubMode, type ProSubMode, type ImageSubMode, type OptimizationMode, type ConversationMessage, type ToolDefinition, type ContextEditorState, type ContextMode, type FavoritePrompt } from "@prompt-optimizer/core";
 
 // 1. 基础 composables
 const hljsInstance = hljs;
@@ -340,6 +353,7 @@ const i18n = useI18n();
  
 const t = i18n.t;  // 在模板中使用
 const toast = useToast();
+const confirmDialog = useConfirmDialog();
 
 // ========= Chunk-load failure recovery =========
 // A long-lived tab can keep running an old main bundle after a new deployment.
@@ -375,7 +389,12 @@ const promptRefreshForNewDeploy = async (reason: unknown) => {
     }
     window.sessionStorage.setItem(CHUNK_LOAD_REFRESH_GUARD_KEY, '1');
 
-    const ok = window.confirm(t('toast.warning.chunkLoadRefreshConfirm'));
+    const ok = await confirmDialog.warning({
+      title: t('common.warning'),
+      content: t('toast.warning.chunkLoadRefreshConfirm'),
+      positiveText: t('common.confirm'),
+      negativeText: t('common.cancel'),
+    });
     if (!ok) {
       toast.warning(t('toast.warning.chunkLoadRefreshDeclined'), 8000);
       return;
@@ -461,10 +480,9 @@ const getWorkspacePathFromGlobalSettings = () => {
 const getCurrentRouteFromWorkspaceQuery = () =>
   normalizeWorkspacePath(routerInstance.currentRoute.value.query.from)
 
-const lastWorkspacePath = ref(
+const lastWorkspacePath = ref<string | null>(
   normalizeWorkspacePath(routerInstance.currentRoute.value.path)
   ?? getCurrentRouteFromWorkspaceQuery()
-  ?? DEFAULT_WORKSPACE_PATH,
 )
 
 const isFavoritesRoute = computed(() => routerInstance.currentRoute.value.path === '/favorites')
@@ -489,7 +507,11 @@ watch(
 )
 
 const activeWorkspaceContextPath = computed(() =>
-  normalizeWorkspacePath(routerInstance.currentRoute.value.path) ?? lastWorkspacePath.value,
+  resolveWorkspacePathFallback(
+    routerInstance.currentRoute.value.path,
+    lastWorkspacePath.value,
+    () => getWorkspacePathFromGlobalSettings(),
+  ),
 )
 
 // 纯解析函数：从工作区路径提取模式和子模式；收藏页等非工作区路径沿用最近工作区上下文
@@ -634,6 +656,7 @@ const servicesForContextEditor = computed(() => services?.value || null);
 // 6. 创建所有必要的引用
 const promptService = shallowRef<IPromptService | null>(null);
 const showDataManager = ref(false);
+const dataBackupReminderDue = ref(isDataBackupReminderDue());
 
 type ContextWorkspaceExpose = {
     // Vue ComponentPublicInstance 会自动 unwrap expose 里的 Ref，因此这里使用已解包的类型
@@ -985,6 +1008,7 @@ const optimizer = usePromptOptimizer(
         optimizedReasoning: basicSessionOptimizedReasoning,
         currentChainId: basicSessionChainId,
         currentVersionId: basicSessionVersionId,
+        getSourceBindingSession: () => activeBasicSession.value,
     },
 );
 
@@ -1601,6 +1625,40 @@ const optimizerPrompt = computed<string>({
     },
 });
 
+const getSessionBySubModeKey = (targetKey: SubModeKey) => {
+    switch (targetKey) {
+        case 'basic-system': return basicSystemSession;
+        case 'basic-user': return basicUserSession;
+        case 'pro-multi': return proMultiMessageSession;
+        case 'pro-variable': return proVariableSession;
+        case 'image-text2image': return imageText2ImageSession;
+        case 'image-image2image': return imageImage2ImageSession;
+        case 'image-multiimage': return imageMultiImageSession;
+        default: return null;
+    }
+};
+
+const restoreSourceBindingForTargetKey = (
+    targetKey: string,
+    state: { assetBinding?: PromptAssetBinding; origin?: PromptSessionOrigin },
+) => {
+    if (!WORKSPACE_SUB_MODE_KEYS.includes(targetKey as SubModeKey)) return;
+    const session = getSessionBySubModeKey(targetKey as SubModeKey);
+    if (!session) return;
+    if (state.assetBinding || state.origin) {
+        session.updateAssetBinding(state.assetBinding, state.origin);
+    } else {
+        session.clearAssetBinding();
+    }
+};
+
+const saveSessionForTargetKey = async (targetKey: string) => {
+    if (!WORKSPACE_SUB_MODE_KEYS.includes(targetKey as SubModeKey)) return;
+    const session = getSessionBySubModeKey(targetKey as SubModeKey);
+    if (!session?.saveSession) return;
+    await session.saveSession();
+};
+
 // App 级别历史记录恢复
 const { handleHistoryReuse } = useAppHistoryRestore({
     services: servicesForHistoryRestore,
@@ -1612,6 +1670,8 @@ const { handleHistoryReuse } = useAppHistoryRestore({
     userWorkspaceRef,
     t,
     isLoadingExternalData,
+    restoreSourceBindingForTargetKey,
+    saveSessionForTargetKey,
 });
 
 // App 级别收藏管理
@@ -1628,26 +1688,35 @@ const {
     optimizerPrompt,
     t,
     isLoadingExternalData,
+    basicSystemSession,
+    basicUserSession,
     proMultiMessageSession,
     proVariableSession,
     imageText2ImageSession,
     imageImage2ImageSession,
     imageMultiImageSession,
+    optimizerCurrentVersions,
     getFavoriteImageStorageService:
       () => services.value?.favoriteImageStorageService || services.value?.imageStorageService || null,
+    getFavoriteManager: () => services.value?.favoriteManager || null,
+    getCurrentFunctionMode: () => routeFunctionMode.value,
+    getCurrentOptimizationMode: () => selectedOptimizationMode.value,
+    getCurrentImageSubMode: () => routeImageSubMode.value,
 });
 
 const resolveFavoritesReturnPath = () =>
-    getCurrentRouteFromWorkspaceQuery()
-    ?? getWorkspacePathFromGlobalSettings()
-    ?? lastWorkspacePath.value
-    ?? DEFAULT_WORKSPACE_PATH;
+    resolveWorkspacePathFallback(
+        getCurrentRouteFromWorkspaceQuery(),
+        lastWorkspacePath.value,
+        () => getWorkspacePathFromGlobalSettings(),
+    );
 
 const openFavoritesPage = () => {
-    const fromPath = normalizeWorkspacePath(routerInstance.currentRoute.value.path)
-        ?? lastWorkspacePath.value
-        ?? getWorkspacePathFromGlobalSettings()
-        ?? DEFAULT_WORKSPACE_PATH;
+    const fromPath = resolveWorkspacePathFallback(
+        routerInstance.currentRoute.value.path,
+        lastWorkspacePath.value,
+        () => getWorkspacePathFromGlobalSettings(),
+    );
 
     if (isFavoritesRoute.value && getCurrentRouteFromWorkspaceQuery() === fromPath) {
         return;
@@ -1705,6 +1774,31 @@ void registerOptionalIntegrations({
     optimizerCurrentVersions,
 });
 provide("handleSaveFavorite", handleSaveFavorite);
+
+// 提供 openToolManager 接口（供 Pro 工作区直接调用）
+provide("openToolManager", () => {
+    showToolManager.value = true;
+});
+
+// 提供 openVariableManager 接口（供 Pro 工作区直接调用）
+provide("openVariableManager", (variableName?: string) => {
+    handleOpenVariableManager(variableName);
+});
+
+// 提供 saveToGlobal 接口（供 Pro 工作区将临时变量保存到全局）
+provide("saveToGlobal", (name: string, value: string) => {
+    try {
+        variableManager.addVariable(name, value);
+    } catch (error) {
+        console.error('[PromptOptimizerApp] Failed to save variable to global:', error);
+        throw error;
+    }
+});
+
+// 提供 openPromptPreview 接口（供 Pro 工作区打开提示词预览面板）
+provide("openPromptPreview", () => {
+    showPreviewPanel.value = true;
+});
 
 // 模板管理器
 const templateManagerState = useTemplateManager(services);
@@ -1790,7 +1884,10 @@ const refreshTextModels = async () => {
             await m.ensureInitialized();
         }
         const enabledModels = await manager.getEnabledModels();
-        textModelOptions.value = DataTransformer.modelsToSelectOptions(enabledModels);
+        textModelOptions.value = DataTransformer.modelsToSelectOptions(enabledModels, {
+            getProviderName: (model) => getProviderDisplayName(model.providerMeta, t),
+            getModelName: (model) => getTextModelConfigDisplayName(model, t)
+        });
 
         const availableKeys = new Set(textModelOptions.value.map((opt) => opt.value));
         const fallbackValue = textModelOptions.value[0]?.value || "";
@@ -1901,19 +1998,6 @@ watch(
     },
     { immediate: false },
 );
-
-const openExternalUrl = async (url: string) => {
-    if (typeof window !== "undefined" && window.electronAPI?.shell) {
-        try {
-            await window.electronAPI.shell.openExternal(url);
-        } catch (error) {
-            console.error("Failed to open external URL in Electron:", error);
-            window.open(url, "_blank");
-        }
-    } else {
-        window.open(url, "_blank");
-    }
-};
 
 const appVersion = `v${rootPackageJson.version}`;
 
@@ -2204,11 +2288,18 @@ const handleVisibilityChange = () => {
   }
 }
 
+const refreshDataBackupReminder = () => {
+  dataBackupReminderDue.value = isDataBackupReminderDue()
+}
+
 onMounted(() => {
   // Route-level lazy loading can break after a new deployment when this tab is still running an old main bundle.
   // Prompt user to refresh instead of auto-reloading.
   if (typeof window !== 'undefined') {
     window.addEventListener('unhandledrejection', handleUnhandledRejection);
+    window.addEventListener(DATA_BACKUP_STATUS_EVENT, refreshDataBackupReminder);
+    window.addEventListener('storage', refreshDataBackupReminder);
+    refreshDataBackupReminder();
   }
   removeRouterErrorHandler = routerInstance.onError((error) => {
     if (!isChunkLoadFailure(error)) return;
@@ -2316,6 +2407,8 @@ onBeforeUnmount(async () => {
     window.removeEventListener('pagehide', handlePagehide)
     document.removeEventListener('visibilitychange', handleVisibilityChange)
     window.removeEventListener('unhandledrejection', handleUnhandledRejection)
+    window.removeEventListener(DATA_BACKUP_STATUS_EVENT, refreshDataBackupReminder)
+    window.removeEventListener('storage', refreshDataBackupReminder)
     if (hasRegisteredGlobalHistoryRefresh) {
       window.removeEventListener(
         'prompt-optimizer:history-refresh',
@@ -2334,14 +2427,14 @@ onBeforeUnmount(async () => {
 
 <style scoped>
 .active-button {
-    background-color: var(--primary-color, #3b82f6) !important;
-    color: white !important;
-    border-color: var(--primary-color, #3b82f6) !important;
+    background-color: var(--n-primary-color) !important;
+    color: var(--n-text-color-primary) !important;
+    border-color: var(--n-primary-color) !important;
 }
 
 .active-button:hover {
-    background-color: var(--primary-hover-color, #2563eb) !important;
-    border-color: var(--primary-hover-color, #2563eb) !important;
+    background-color: var(--n-primary-color-hover) !important;
+    border-color: var(--n-primary-color-hover) !important;
 }
 
 .loading-container {
@@ -2349,32 +2442,10 @@ onBeforeUnmount(async () => {
     flex-direction: column;
     justify-content: center;
     align-items: center;
+    gap: 12px;
     height: 100vh;
     font-size: 1.2rem;
-    color: var(--text-color);
-    background-color: var(--background-color);
-}
-
-.loading-container.error {
-    color: #f56c6c;
-}
-
-.spinner {
-    border: 4px solid rgba(128, 128, 128, 0.2);
-    width: 36px;
-    height: 36px;
-    border-radius: 50%;
-    border-left-color: var(--primary-color);
-    animation: spin 1s ease infinite;
-    margin-bottom: 20px;
-}
-
-@keyframes spin {
-    0% {
-        transform: rotate(0deg);
-    }
-    100% {
-        transform: rotate(360deg);
-    }
+    color: var(--n-text-color);
+    background-color: var(--n-body-color, var(--n-color));
 }
 </style>

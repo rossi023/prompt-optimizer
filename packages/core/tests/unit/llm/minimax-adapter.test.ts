@@ -40,8 +40,8 @@ describe('MinimaxAdapter', () => {
       }
     },
     modelMeta: {
-      id: 'MiniMax-M2.7',
-      name: 'MiniMax M2.7',
+      id: 'MiniMax-M3',
+      name: 'MiniMax M3',
       description: 'Latest flagship model with enhanced reasoning and coding',
       providerId: 'minimax',
       capabilities: {
@@ -98,6 +98,20 @@ describe('MinimaxAdapter', () => {
       expect(provider.id).toBe('minimax');
       expect(provider.name).toBe('MiniMax');
       expect(provider.defaultBaseURL).toBe('https://api.minimax.io/v1');
+      expect(provider.regionalEndpoints).toEqual([
+        {
+          region: 'global_en',
+          openaiBaseURL: 'https://api.minimax.io/v1',
+          anthropicBaseURL: 'https://api.minimax.io/anthropic',
+          docsRoot: 'https://platform.minimax.io/docs'
+        },
+        {
+          region: 'cn_zh',
+          openaiBaseURL: 'https://api.minimaxi.com/v1',
+          anthropicBaseURL: 'https://api.minimaxi.com/anthropic',
+          docsRoot: 'https://platform.minimaxi.com/docs'
+        }
+      ]);
       expect(provider.supportsDynamicModels).toBe(true);
       expect(provider.requiresApiKey).toBe(true);
       expect(provider.description).toContain('https://api.minimaxi.com/v1');
@@ -119,29 +133,40 @@ describe('MinimaxAdapter', () => {
       expect(Array.isArray(models)).toBe(true);
       expect(models.length).toBeGreaterThan(0);
 
+      const m3 = models.find(m => m.id === 'MiniMax-M3');
+      expect(m3).toBeDefined();
+      expect(m3?.name).toBe('MiniMax M3');
+      expect(m3?.providerId).toBe('minimax');
+      expect(m3?.capabilities.supportsTools).toBe(true);
+      expect(m3?.capabilities.maxContextLength).toBe(1000000);
+      expect(m3?.capabilities.supportsReasoning).toBe(true);
+
       const m27 = models.find(m => m.id === 'MiniMax-M2.7');
-      expect(m27).toBeDefined();
-      expect(m27?.name).toBe('MiniMax M2.7');
-      expect(m27?.providerId).toBe('minimax');
-      expect(m27?.capabilities.supportsTools).toBe(true);
+      expect(m27?.capabilities.supportsReasoning).toBe(true);
+      expect(m27?.capabilities.maxContextLength).toBe(204800);
+
+      const m27Highspeed = models.find(m => m.id === 'MiniMax-M2.7-highspeed');
+      expect(m27Highspeed?.capabilities.maxContextLength).toBe(204800);
+      expect(m27Highspeed?.capabilities.supportsReasoning).toBe(true);
     });
 
     it('should include all expected models', () => {
       const models = adapter.getModels();
       const modelIds = models.map(m => m.id);
 
+      expect(modelIds).toContain('MiniMax-M3');
       expect(modelIds).toContain('MiniMax-M2.7');
       expect(modelIds).toContain('MiniMax-M2.7-highspeed');
-      expect(modelIds).toContain('MiniMax-M2.5');
-      expect(modelIds).toContain('MiniMax-M2.5-highspeed');
-      expect(models.length).toBe(4);
+      expect(modelIds).not.toContain('MiniMax-M2.5');
+      expect(modelIds).not.toContain('MiniMax-M2.5-highspeed');
+      expect(models.length).toBe(3);
     });
 
-    it('should have M2.7 as the first model', () => {
+    it('should have M3 as the first model', () => {
       const models = adapter.getModels();
 
-      expect(models[0].id).toBe('MiniMax-M2.7');
-      expect(models[1].id).toBe('MiniMax-M2.7-highspeed');
+      expect(models[0].id).toBe('MiniMax-M3');
+      expect(models[1].id).toBe('MiniMax-M2.7');
     });
 
     it('should have capabilities for each model', () => {
@@ -172,7 +197,7 @@ describe('MinimaxAdapter', () => {
         id: 'chatcmpl-minimax-123',
         object: 'chat.completion',
         created: Date.now(),
-        model: 'MiniMax-M2.7',
+        model: 'MiniMax-M3',
         choices: [{
           index: 0,
           message: {
@@ -194,7 +219,7 @@ describe('MinimaxAdapter', () => {
 
       expect(response.content).toBe('Hello from MiniMax!');
       expect(response.metadata).toEqual({
-        model: 'MiniMax-M2.7',
+        model: 'MiniMax-M3',
         finishReason: 'stop'
       });
     });

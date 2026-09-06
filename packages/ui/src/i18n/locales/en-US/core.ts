@@ -37,6 +37,33 @@ const messages = {
     "hide": "Hide",
     "clear": "Clear",
     "workspaceTools": "Workspace Tools",
+    "promptGarden": {
+      "title": "Prompt Garden",
+      "discover": "Discover Garden Prompts",
+      "importPrompt": "Import Garden Prompt",
+      "importFavorite": "Import as Favorite",
+      "importTitle": "Import Prompt Garden Prompt",
+      "importHint": "Paste the import code copied from Prompt Garden, or paste a link that contains importCode.",
+      "importFavoriteTitle": "Import Prompt Garden Favorite",
+      "importFavoriteHint": "Paste a Prompt Garden import code or link. A save-favorite confirmation will open after import.",
+      "importPlaceholder": "Enter import code",
+      "text2ImageGuideTitle": "Discover text-to-image prompts in Prompt Garden",
+      "text2ImageGuideHint": "When you need a starting point, browse Garden prompts or paste an import code into this workspace.",
+      "image2ImageGuideTitle": "Discover image-to-image prompts in Prompt Garden",
+      "image2ImageGuideHint": "When you need an editing direction, browse Garden prompts or paste an import code into this workspace.",
+      "inspirationTrigger": "Inspiration",
+      "inspirationStartTitle": "Start with inspiration",
+      "inspirationTitle": "Find inspiration",
+      "loadingSuggestions": "Loading inspiration...",
+      "refreshSuggestions": "Refresh suggestions",
+      "browseMore": "Browse more",
+      "noSuggestions": "No suggestions right now. Browse Garden or paste an import code.",
+      "useShort": "Use",
+      "replaceImportShort": "Replace import",
+      "discoverShort": "Discover",
+      "importShort": "Paste code",
+      "importingStatus": "Importing prompt and image resources from Prompt Garden..."
+    },
     "clearContent": "Clear Content",
     "clearContentWillLabel": "Clears:",
     "clearContentWill": "prompts, derived results, test outputs, temporary variables",
@@ -96,6 +123,18 @@ const messages = {
   "actions": {
     "copy": "Copy",
     "fullscreen": "Fullscreen"
+  },
+  "copyOpen": {
+    "copyOnly": "Copy only",
+    "copyAndOpen": "Copy and open {platform}",
+    "selectAction": "Choose copy action",
+    "openFailed": "Copied, but failed to open the platform",
+    "platforms": {
+      "chatgpt": "ChatGPT",
+      "claude": "Claude",
+      "gemini": "Gemini",
+      "deepseek": "DeepSeek"
+    }
   },
   "nav": {
     "home": "Home",

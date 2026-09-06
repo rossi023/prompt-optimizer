@@ -2,7 +2,7 @@ import { Template, MessageTemplate } from '../../../types'
 
 export const template: Template = {
   id: 'multiimage-optimize-en',
-  name: 'Multi-Image Optimization',
+  name: 'Reference Relationship Builder',
   content: [
     {
       role: 'system',
@@ -31,7 +31,8 @@ Additional rules:
 - The images are already attached to the request
 - Refer to them only as "Image 1 / Image 2 / Image 3 ..."
 - The JSON below is a request wrapper, not the output structure; optimize only the value of the originalPrompt field
-- Even if originalPrompt contains double-curly-brace placeholders, directly output natural-language multi-image instructions, do not output JSON, and preserve every placeholder exactly
+- Even if originalPrompt contains double-curly-brace placeholders, directly output natural-language multi-image instructions, do not output JSON, and preserve every placeholder exactly (for example, {{=<% %>=}}{{reference_style}}<%={{ }}=%>)
+- Before output, internally check every {{=<% %>=}}{{...}}<%={{ }}=%> placeholder from originalPrompt; missing any one of them is a failure. You may clarify Image 1 / Image 2 relationships, but do not rewrite variables into fixed character names, ordinary nouns, or concrete values
 
 Request wrapper (JSON):
 {
@@ -45,7 +46,7 @@ Output only the optimized prompt:`
     version: '1.0.0',
     lastModified: 1712073600000,
     author: 'System',
-    description: 'Multi-image prompt optimization template, organizing user requests around Image 1 / Image 2 / Image 3 relationships',
+    description: 'Organizes user requests around Image 1, Image 2, Image 3, and their visual relationships',
     templateType: 'multiimageOptimize',
     language: 'en',
   },

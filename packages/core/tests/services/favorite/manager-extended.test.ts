@@ -3,6 +3,7 @@ import { FavoriteManager } from '../../../src/services/favorite/manager';
 import type { IStorageProvider } from '../../../src/services/storage/types';
 import { FavoriteValidationError } from '../../../src/services/favorite/errors';
 import { TypeMapper } from '../../../src/services/favorite/type-mapper';
+import type { PromptAsset } from '../../../src/services/prompt-model';
 
 /**
  * FavoriteManager 扩展功能单元测试
@@ -216,6 +217,331 @@ describe('FavoriteManager - 扩展功能', () => {
       const favorite = await manager.getFavorite(id);
       expect(favorite.metadata?.customField).toBe('自定义值');
       expect(favorite.metadata?.anotherField).toBe(123);
+    });
+
+    it('新增收藏时应该写入标准 promptAsset 且不把 workspace-current 写入资产示例', async () => {
+      const id = await manager.addFavorite({
+        title: '测试',
+        content: 'Write about {{topic}}',
+        tags: ['tag-a'],
+        functionMode: 'context',
+        optimizationMode: 'user',
+        metadata: {
+          reproducibility: {
+            variables: [
+              {
+                name: 'topic',
+                source: 'workspace',
+                defaultValue: '临时变量值',
+              },
+            ],
+            examples: [
+              {
+                id: 'workspace-current',
+                text: 'Write about {{topic}}',
+                parameters: { topic: '临时变量值' },
+              },
+            ],
+          },
+        },
+      });
+
+      const favorite = await manager.getFavorite(id);
+      const promptAsset = favorite.metadata?.promptAsset as {
+        schemaVersion: string;
+        id: string;
+        contract: {
+          modeKey: string;
+          variables: unknown[];
+        };
+        examples: unknown[];
+      };
+
+      expect(promptAsset.schemaVersion).toBe('prompt-model/v1');
+      expect(promptAsset.id).toBe(`favorite:${id}`);
+      expect(promptAsset.contract.modeKey).toBe('pro-variable');
+      expect(promptAsset.contract.variables).toEqual([
+        {
+          name: 'topic',
+          required: false,
+          options: [],
+          source: 'workspace',
+        },
+      ]);
+      expect(promptAsset.examples).toEqual([]);
+      expect(favorite.metadata?.reproducibility).toMatchObject({
+        examples: [
+          {
+            id: 'workspace-current',
+            parameters: { topic: '临时变量值' },
+          },
+        ],
+      });
+    });
+
+    it('更新收藏正文时应该刷新 promptAsset 并保留 Garden 快照', async () => {
+      const gardenSnapshot = {
+        importCode: 'garden-1',
+        variables: [{ name: 'style', defaultValue: 'ink' }],
+        assets: {
+          examples: [{ id: 'garden-example', parameters: { style: 'ink' } }],
+        },
+      };
+      const id = await manager.addFavorite({
+        title: 'Garden',
+        content: 'Garden prompt',
+        tags: [],
+        functionMode: 'image',
+        imageSubMode: 'text2image',
+        metadata: {
+          gardenSnapshot,
+        },
+      });
+
+      await manager.updateFavorite(id, {
+        title: 'Updated Garden',
+        content: 'Updated prompt',
+        metadata: {
+          gardenSnapshot,
+          reproducibility: {
+            variables: [{ name: 'topic', required: true }],
+            examples: [{ id: 'manual-example', text: 'Manual input' }],
+          },
+        },
+      });
+
+      const favorite = await manager.getFavorite(id);
+      const promptAsset = favorite.metadata?.promptAsset as PromptAsset;
+
+      expect(favorite.metadata?.gardenSnapshot).toEqual(gardenSnapshot);
+      expect(promptAsset.title).toBe('Updated Garden');
+      expect(promptAsset.versions).toHaveLength(2);
+      expect(promptAsset.versions[0].content).toEqual({
+        kind: 'image-prompt',
+        text: 'Garden prompt',
+      });
+      expect(promptAsset.versions[1].content).toEqual({
+        kind: 'image-prompt',
+        text: 'Updated prompt',
+      });
+      expect(promptAsset.currentVersionId).toBe(promptAsset.versions[1].id);
+      expect(promptAsset.contract.variables).toMatchObject([{ name: 'topic', required: true }]);
+      expect(promptAsset.examples.map((example) => example.id)).toEqual(['manual-example']);
+      expect(promptAsset.examples[0].basedOnVersionId).toBe(promptAsset.currentVersionId);
+    });
+
+    it('只更新标题标签时不创建新的 promptAsset 正文版本', async () => {
+      const id = await manager.addFavorite({
+        title: 'Original title',
+        content: 'Stable content',
+        tags: ['old'],
+        functionMode: 'basic',
+        optimizationMode: 'system',
+      });
+      const before = (await manager.getFavorite(id)).metadata?.promptAsset as PromptAsset;
+
+      await manager.updateFavorite(id, {
+        title: 'Renamed title',
+        tags: ['new'],
+        description: 'Updated description',
+      });
+
+      const after = (await manager.getFavorite(id)).metadata?.promptAsset as PromptAsset;
+      expect(after.title).toBe('Renamed title');
+      expect(after.tags).toEqual(['new']);
+      expect(after.description).toBe('Updated description');
+      expect(after.currentVersionId).toBe(before.currentVersionId);
+      expect(after.versions).toHaveLength(1);
+      expect(after.versions[0].content).toEqual({ kind: 'text', text: 'Stable content' });
+    });
+
+    it('只追加示例时不创建新的 promptAsset 正文版本', async () => {
+      const id = await manager.addFavorite({
+        title: 'Example asset',
+        content: 'Prompt {{topic}}',
+        tags: [],
+        functionMode: 'context',
+        optimizationMode: 'user',
+        metadata: {
+          reproducibility: {
+            variables: [{ name: 'topic', required: true }],
+            examples: [{ id: 'example-1', text: 'Input one' }],
+          },
+        },
+      });
+      const beforeFavorite = await manager.getFavorite(id);
+      const before = beforeFavorite.metadata?.promptAsset as PromptAsset;
+
+      await manager.updateFavorite(id, {
+        metadata: {
+          ...beforeFavorite.metadata,
+          reproducibility: {
+            variables: [{ name: 'topic', required: true }],
+            examples: [
+              { id: 'example-1', text: 'Input one' },
+              { id: 'example-2', text: 'Input two', outputText: 'Output two' },
+            ],
+          },
+        },
+      });
+
+      const after = (await manager.getFavorite(id)).metadata?.promptAsset as PromptAsset;
+      expect(after.currentVersionId).toBe(before.currentVersionId);
+      expect(after.versions).toHaveLength(1);
+      expect(after.examples.map((example) => example.id)).toEqual(['example-1', 'example-2']);
+      expect(after.contract.variables).toMatchObject([{ name: 'topic', required: true }]);
+    });
+
+    it('更新正文时创建新的 promptAsset 正文版本并保留旧版本', async () => {
+      const id = await manager.addFavorite({
+        title: 'Versioned asset',
+        content: 'Version one',
+        tags: [],
+        functionMode: 'basic',
+        optimizationMode: 'system',
+      });
+      const before = (await manager.getFavorite(id)).metadata?.promptAsset as PromptAsset;
+
+      await manager.updateFavorite(id, {
+        content: 'Version two',
+      });
+
+      const after = (await manager.getFavorite(id)).metadata?.promptAsset as PromptAsset;
+      expect(after.versions).toHaveLength(2);
+      expect(after.versions[0].id).toBe(before.currentVersionId);
+      expect(after.versions[0].content).toEqual({ kind: 'text', text: 'Version one' });
+      expect(after.versions[1]).toMatchObject({
+        id: `favorite:${id}:version:2`,
+        version: 2,
+        content: { kind: 'text', text: 'Version two' },
+      });
+      expect(after.currentVersionId).toBe(`favorite:${id}:version:2`);
+    });
+
+    it('保存恢复出的历史正文时应保留版本链并追加新的当前版本', async () => {
+      const id = await manager.addFavorite({
+        title: 'Restorable asset',
+        content: 'Version one',
+        tags: [],
+        functionMode: 'basic',
+        optimizationMode: 'system',
+      });
+
+      await manager.updateFavorite(id, {
+        content: 'Version two',
+      });
+
+      await manager.updateFavorite(id, {
+        content: 'Version one',
+      });
+
+      const after = (await manager.getFavorite(id)).metadata?.promptAsset as PromptAsset;
+      expect(after.versions).toHaveLength(3);
+      expect(after.versions.map((version) => version.content)).toEqual([
+        { kind: 'text', text: 'Version one' },
+        { kind: 'text', text: 'Version two' },
+        { kind: 'text', text: 'Version one' },
+      ]);
+      expect(after.currentVersionId).toBe(`favorite:${id}:version:3`);
+    });
+
+    it('显式设为当前版本时同步正文和 currentVersionId 且不追加版本或改写示例', async () => {
+      const id = await manager.addFavorite({
+        title: 'Switchable asset',
+        content: 'Version one',
+        tags: [],
+        functionMode: 'context',
+        optimizationMode: 'user',
+        metadata: {
+          reproducibility: {
+            variables: [{ name: 'topic', required: true }],
+            examples: [{ id: 'example-1', text: 'Input one' }],
+          },
+        },
+      });
+
+      await manager.updateFavorite(id, {
+        content: 'Version two',
+      });
+
+      const before = (await manager.getFavorite(id)).metadata?.promptAsset as PromptAsset;
+      const firstVersionId = before.versions[0].id;
+      const examplesBefore = JSON.parse(JSON.stringify(before.examples));
+
+      await manager.setFavoritePromptAssetCurrentVersion(id, firstVersionId);
+
+      const favorite = await manager.getFavorite(id);
+      const after = favorite.metadata?.promptAsset as PromptAsset;
+      expect(favorite.content).toBe('Version one');
+      expect(after.currentVersionId).toBe(firstVersionId);
+      expect(after.versions).toHaveLength(2);
+      expect(after.versions.map((version) => version.content)).toEqual([
+        { kind: 'text', text: 'Version one' },
+        { kind: 'text', text: 'Version two' },
+      ]);
+      expect(after.examples).toEqual(examplesBefore);
+    });
+
+    it('删除非当前版本时只移除目标版本且不扫描或改写示例引用', async () => {
+      const id = await manager.addFavorite({
+        title: 'Deletable asset',
+        content: 'Version one',
+        tags: [],
+        functionMode: 'basic',
+        optimizationMode: 'system',
+        metadata: {
+          reproducibility: {
+            variables: [],
+            examples: [{ id: 'example-legacy', text: 'Input one' }],
+          },
+        },
+      });
+
+      await manager.updateFavorite(id, {
+        content: 'Version two',
+      });
+
+      const before = (await manager.getFavorite(id)).metadata?.promptAsset as PromptAsset;
+      const firstVersionId = before.versions[0].id;
+      const currentVersionId = before.currentVersionId;
+      const examplesBefore = JSON.parse(JSON.stringify(before.examples));
+
+      await manager.deleteFavoritePromptAssetVersion(id, firstVersionId);
+
+      const favorite = await manager.getFavorite(id);
+      const after = favorite.metadata?.promptAsset as PromptAsset;
+      expect(favorite.content).toBe('Version two');
+      expect(after.currentVersionId).toBe(currentVersionId);
+      expect(after.versions.map((version) => version.id)).toEqual([currentVersionId]);
+      expect(after.examples).toEqual(examplesBefore);
+    });
+
+    it('禁止删除当前版本和最后一个版本', async () => {
+      const id = await manager.addFavorite({
+        title: 'Guarded asset',
+        content: 'Version one',
+        tags: [],
+        functionMode: 'basic',
+        optimizationMode: 'system',
+      });
+      const initial = (await manager.getFavorite(id)).metadata?.promptAsset as PromptAsset;
+
+      await expect(
+        manager.deleteFavoritePromptAssetVersion(id, initial.currentVersionId),
+      ).rejects.toThrow(FavoriteValidationError);
+
+      await manager.updateFavorite(id, {
+        content: 'Version two',
+      });
+
+      const withTwoVersions = (await manager.getFavorite(id)).metadata?.promptAsset as PromptAsset;
+      await expect(
+        manager.deleteFavoritePromptAssetVersion(id, withTwoVersions.currentVersionId),
+      ).rejects.toThrow(FavoriteValidationError);
+
+      const after = (await manager.getFavorite(id)).metadata?.promptAsset as PromptAsset;
+      expect(after.versions).toHaveLength(2);
+      expect(after.currentVersionId).toBe(withTwoVersions.currentVersionId);
     });
 
     it('应该拒绝包含 data URL 封面的收藏 metadata', async () => {

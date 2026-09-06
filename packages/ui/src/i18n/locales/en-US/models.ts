@@ -25,10 +25,38 @@ const messages = {
       "section": "Provider Configuration",
       "label": "Provider",
       "placeholder": "Select Provider",
-      "openaiHint": "This is the official OpenAI API. If you want a custom base URL, a third-party compatible service, or a local model, choose \"Custom API (OpenAI Compatible)\" instead.",
+      "more": "More",
+      "openaiCompatibleCustomLabel": "OpenAI Compatible (Custom)",
+      "openaiHint": "This is the official OpenAI API. If you want a custom base URL, a third-party compatible service, or a local model, choose \"OpenAI Compatible (Custom)\" instead.",
       "customApiHint": "Use this for custom OpenAI-compatible endpoints. You can configure the base URL, use your own model name, and choose Chat Completions or Responses as the request style.",
       "dashscopeHint": "DashScope supports both OpenAI-compatible Chat Completions and Responses APIs. You can switch the request style here directly.",
-      "minimaxHint": "The default endpoint is the global MiniMax OpenAI-compatible API. Mainland China users should set API URL to https://api.minimaxi.com/v1. Do not use Anthropic-format MiniMax endpoints here."
+      "xiaomiMimoHint": "Defaults to the Xiaomi MiMo Token Plan China endpoint: https://token-plan-cn.xiaomimimo.com/v1. You can change it to the Singapore endpoint https://token-plan-sgp.xiaomimimo.com/v1 or Amsterdam endpoint https://token-plan-ams.xiaomimimo.com/v1 shown in Subscription Management. Env presets use VITE_MIMO_TOKEN_PLAN_*.",
+      "minimaxHint": "The default endpoint is the global MiniMax OpenAI-compatible API. Mainland China users should set API URL to https://api.minimaxi.com/v1. Do not use Anthropic-format MiniMax endpoints here.",
+      "chromeBuiltInHint": "Use Chrome's local Gemini Nano model without a third-party API key. Chrome manages the model, and first use may require an explicit user download. Chrome currently officially supports English, Spanish, and Japanese output; this provider defaults to English for compatibility."
+    },
+    "chromeBuiltIn": {
+      "downloadAction": "Download / prepare local model",
+      "recheckAction": "Recheck",
+      "preparing": "Preparing Chrome local model...",
+      "ready": "Chrome local model is ready",
+      "prepareFailed": "Failed to prepare Chrome local model: {error}",
+      "statusWithError": "{status} ({error})",
+      "title": {
+        "checking": "Checking Chrome built-in AI",
+        "available": "Chrome built-in AI is ready",
+        "downloadable": "Chrome local model needs download",
+        "downloading": "Chrome is downloading the local model",
+        "unavailable": "This environment is not supported",
+        "api-missing": "This browser does not expose Chrome Prompt API"
+      },
+      "status": {
+        "checking": "Checking whether this browser exposes the Prompt API and whether the local model is ready.",
+        "available": "Ready to use without an API URL or API key. Sessions default to English because Chrome currently officially supports English, Spanish, and Japanese output.",
+        "downloadable": "Your Chrome supports this feature, but the local model is not downloaded yet. Chrome is only asked to download it after you click the button below.",
+        "downloading": "Chrome is downloading the model. This may take a while; once it finishes, you can test or save this model.",
+        "unavailable": "This browser, device, user profile, or managed policy may not support the feature. You can still configure another text model provider.",
+        "api-missing": "Open the Web app in a Chrome version that supports the Prompt API. Other browsers safely degrade without runtime errors."
+      }
     },
     "connection": {
       "accountId": "Account ID",
@@ -36,6 +64,19 @@ const messages = {
       "requestStyleOptions": {
         "chatCompletions": "Chat Completions",
         "responses": "Responses"
+      }
+    },
+    "customHeaders": {
+      "label": "Custom Request Headers",
+      "namePlaceholder": "Header name, e.g. x-auth-token",
+      "valuePlaceholder": "Header value",
+      "add": "Add Header",
+      "validationError": "Invalid custom request headers: {details}",
+      "validation": {
+        "invalid-name": "Invalid header name",
+        "forbidden-name": "This header is managed by the client or browser and cannot be overridden",
+        "missing-value": "Header value is required",
+        "invalid-value": "Header value must be text, number, or boolean"
       }
     },
     "model": {
@@ -68,7 +109,11 @@ const messages = {
         "belowMin": "Value cannot be less than {min}",
         "aboveMax": "Value cannot be greater than {max}",
         "mustBeInteger": "Must be an integer"
-      }
+      },
+      "formatJson": "JSON",
+      "formatString": "String",
+      "parsedAsObject": "Parsed as Object ✓",
+      "invalidJson": "Invalid JSON, will be sent as string"
     },
     "modelKeyPlaceholder": "Enter model key",
     "displayNamePlaceholder": "Enter display name",
@@ -151,6 +196,14 @@ const messages = {
       "configure": "Configure Model",
       "noModels": "No model",
       "noAvailableModels": "No available models"
+    },
+    "quickSwitch": {
+      "title": "Switch current model",
+      "placeholder": "Select a model",
+      "modelTagTitle": "Click to switch the model for this configuration",
+      "fetchFailed": "Failed to fetch online models: {error}. You can still choose a local default model.",
+      "updateSuccess": "Switched to {model}",
+      "updateFailed": "Failed to switch model: {error}"
     },
     "manager": {
       "displayName": "e.g., Custom Model",

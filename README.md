@@ -14,15 +14,17 @@
 ![GitHub forks](https://img.shields.io/github/forks/linshenkx/prompt-optimizer?style=flat)
 [![Deploy with Vercel](https://img.shields.io/badge/Vercel-indigo?style=flat&logo=vercel)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Flinshenkx%2Fprompt-optimizer)
 
-[Live Demo](https://prompt.always200.com) | [Quick Start](#quick-start) | [FAQ](#faq) | [Chrome Extension](https://chromewebstore.google.com/detail/prompt-optimizer/cakkkhboolfnadechdlgdcnjammejlna)
+[Website](https://always200.com) | [Online Optimizer](https://prompt.always200.com) | [Prompt Garden](https://garden.always200.com) | [Docs](https://docs.always200.com) | [Quick Start](#quick-start) | [Chrome Extension](https://chromewebstore.google.com/detail/prompt-optimizer/cakkkhboolfnadechdlgdcnjammejlna) | [💖 Support](https://ko-fi.com/linshenkx)
 
-[Development Docs](dev.md) | [Vercel Deployment Guide](docs/user/deployment/vercel_en.md) | [MCP Deployment Guide](docs/user/mcp-server_en.md) | [DeepWiki Docs](https://deepwiki.com/linshenkx/prompt-optimizer) | [ZRead Docs](https://zread.ai/linshenkx/prompt-optimizer)
+[Development Docs](docs/developer/development.md) | [Vercel Deployment Guide](docs/user/deployment/vercel_en.md) | [Cloudflare Deployment Guide](docs/user/deployment/cloudflare-pages_en.md) | [MCP Deployment Guide](docs/user/mcp-server_en.md) | [DeepWiki Docs](https://deepwiki.com/linshenkx/prompt-optimizer) | [ZRead Docs](https://zread.ai/linshenkx/prompt-optimizer)
 
 </div>
 
 ## 📖 Project Introduction
 
 Prompt Optimizer is a powerful AI prompt optimization tool that helps you write better AI prompts and improve the quality of AI outputs. It supports four usage methods: web application, desktop application, Chrome extension, and Docker deployment.
+
+Prompts can start from manual writing, templates, local imports, or sources such as [Prompt Garden](https://garden.always200.com). Prompt Optimizer is where those prompts are optimized, tested, evaluated, and saved as reusable prompt assets.
 
 ### 🎥 Feature Demonstration
 
@@ -45,8 +47,10 @@ Prompt Optimizer is a powerful AI prompt optimization tool that helps you write 
 - 🎯 **Intelligent Optimization**: One-click prompt optimization with multi-round iterative improvements to enhance AI response accuracy
 - 📝 **Dual Mode Optimization**: Support for both system prompt optimization and user prompt optimization to meet different usage scenarios
 - 🔄 **Analysis and Compare Evaluation**: Supports analysis, single-result evaluation, and multi-result compare evaluation to help determine whether a prompt has truly improved
-- 🤖 **Multi-model Integration**: Support for mainstream AI models including OpenAI, Gemini, DeepSeek, Zhipu AI, SiliconFlow, etc.
-- 🖼️ **Image Generation**: Support for Text-to-Image (T2I) and Image-to-Image (I2I) with models like Gemini, Seedream
+- 🤖 **Multi-model Integration**: Support for mainstream AI models including OpenAI, Gemini, DeepSeek, Grok, Zhipu AI, SiliconFlow, MiniMax, etc.
+- 🖼️ **Image Generation**: Support for Text-to-Image (T2I), Image-to-Image (I2I), and Multi-Image generation with models like Gemini, Seedream, Grok
+- 🌱 **Prompt Sources**: Start from manual writing, templates, local imports, or Prompt Garden import codes
+- ⭐ **Smart Favorites**: Resource-aware prompt assets with version history, reproducible examples, media support, source binding, and workspace application
 - 📊 **Advanced Testing Mode**: Context variable management, multi-turn conversation testing, Function Calling support
 - 🔒 **Secure Architecture**: Pure client-side processing with direct data interaction with AI service providers, bypassing intermediate servers
 - 📱 **Multi-platform Support**: Available as web application, desktop application, Chrome extension, and Docker deployment
@@ -58,9 +62,18 @@ Prompt Optimizer is a powerful AI prompt optimization tool that helps you write 
 ### Image Generation Mode
 - 🖼️ **Text-to-Image (T2I)**: Generate images from text prompts
 - 🎨 **Image-to-Image (I2I)**: Transform and optimize images based on local files
-- 🔌 **Multi-model Support**: Integrated with mainstream image generation models like Gemini, Seedream
+- 🖼️ **Multi-Image Generation**: Use multiple input images to constrain subject relationships, sequential semantics, and final generation goals
+- 🔌 **Multi-model Support**: Integrated with mainstream image generation models like Gemini, Seedream, Grok
 - ⚙️ **Model Parameters**: Support model-specific parameter configuration (size, style, etc.)
 - 📥 **Preview & Download**: Real-time preview of generated results with download support
+- 🔄 **Style Transfer**: Learn style, composition, and color from reference images
+
+### Prompt Sources & Smart Favorites
+- 🌱 **Optional Prompt Sources**: Bring prompts from manual writing, templates, local files, or [Prompt Garden](https://garden.always200.com)
+- 📥 **Import & Collect**: Import prompts with metadata, media, examples, and source binding when available
+- ⭐ **Resource-aware Assets**: Save stable prompts as reusable favorites with version history
+- 🔗 **Source Binding**: Track prompt origins and maintain reproducible examples without requiring a specific source
+- 📦 **Complete Backup**: Export and import favorites with all referenced resources
 
 ### Advanced Testing Mode
 - 📊 **Context Variable Management**: Custom variables, batch replacement, variable preview
@@ -78,7 +91,9 @@ Direct access: [https://prompt.always200.com](https://prompt.always200.com)
 
 This is a pure frontend project with all data stored locally in your browser and never uploaded to any server, making the online version both safe and reliable to use.
 
-### 2. Vercel Deployment
+### 2. Web Deployment
+
+#### Vercel Deployment
 Method 1: One-click deployment to your own Vercel:
    [![Deploy with Vercel](https://vercel.com/button)]( https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Frossi023%2Fprompt-optimizer)
 
@@ -88,10 +103,19 @@ Method 2: Fork the project and import to Vercel (Recommended):
    - This allows tracking of source project updates for easy syncing of new features and fixes
 - Configure environment variables:
   - `ACCESS_PASSWORD`: Set access password to enable access restriction
-  - `VITE_OPENAI_API_KEY` etc.: Configure API keys for various AI service providers
-  
+  - `VITE_OPENAI_API_KEY` etc.: Optional private-deployment model settings. Do not preconfigure API keys on public frontend deployments because `VITE_*` values are exposed in browser assets.
+
 For more detailed deployment steps and important notes, please check:
 - [Vercel Deployment Guide](docs/user/deployment/vercel_en.md)
+- [Cloudflare Deployment Guide](docs/user/deployment/cloudflare-pages_en.md)
+
+#### Cloudflare Deployment
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/linshenkx/prompt-optimizer)
+
+Use the Deploy to Cloudflare button for the quickest public-repository setup. It creates a repository under your GitHub/GitLab account and deploys with Workers Builds. For private repositories or stricter repository-access control, import your own repository manually; keep the default deploy commands and clear the build command if Cloudflare auto-fills `pnpm run build`, because `wrangler.jsonc` builds the Web frontend and publishes `packages/web/dist` as static assets.
+
+For access control and analytics on Cloudflare, configure Cloudflare Access and Cloudflare Web Analytics in the Cloudflare dashboard. No frontend dependency or application-code change is required.
 
 ### 3. Download Desktop Application
 Download the latest version from [GitHub Releases](https://github.com/linshenkx/prompt-optimizer/releases). We provide both **installer** and **archive** formats for each platform.
@@ -134,12 +158,13 @@ docker run -d -p 8081:80 \
 git clone https://github.com/linshenkx/prompt-optimizer.git
 cd prompt-optimizer
 
-# 2. Optional: Create .env file for API keys and authentication
+# 2. Create .env file for API keys and authentication
 cat > .env << EOF
 # API Key Configuration
 VITE_OPENAI_API_KEY=your_openai_api_key
 VITE_GEMINI_API_KEY=your_gemini_api_key
 VITE_DEEPSEEK_API_KEY=your_deepseek_api_key
+VITE_GROK_API_KEY=your_xai_api_key
 VITE_ZHIPU_API_KEY=your_zhipu_api_key
 VITE_SILICONFLOW_API_KEY=your_siliconflow_api_key
 
@@ -148,11 +173,13 @@ ACCESS_USERNAME=your_username  # Optional, defaults to "admin"
 ACCESS_PASSWORD=your_password  # Set access password
 EOF
 
+# Because the compose file is under docker/, pass the root .env explicitly.
+
 # 3. Start the service
-docker compose up -d
+docker compose --env-file .env -f docker/docker-compose.yml up -d
 
 # 4. View logs
-docker compose logs -f
+docker compose --env-file .env -f docker/docker-compose.yml logs -f
 
 # 5. Access the service
 Web Interface: http://localhost:8081
@@ -160,9 +187,9 @@ MCP Server: http://localhost:8081/mcp
 ```
 </details>
 
-You can also directly edit the docker-compose.yml file to customize your configuration:
+You can also directly edit the docker/docker-compose.yml file to customize your configuration:
 <details>
-<summary>Click to view docker-compose.yml example</summary>
+<summary>Click to view docker/docker-compose.yml example</summary>
 
 ```yaml
 services:
@@ -176,6 +203,7 @@ services:
     environment:
       - VITE_OPENAI_API_KEY=your_openai_key
       - VITE_GEMINI_API_KEY=your_gemini_key
+      - VITE_GROK_API_KEY=your_xai_key
       # Access Control (Optional)
       - ACCESS_USERNAME=admin
       - ACCESS_PASSWORD=your_password
@@ -196,7 +224,7 @@ MCP Server requires API key configuration to function properly. Main MCP-specifi
 
 ```bash
 # MCP Server Configuration
-MCP_DEFAULT_MODEL_PROVIDER=openai  # Options: openai, gemini, anthropic, deepseek, siliconflow, zhipu, dashscope, openrouter, modelscope, custom
+MCP_DEFAULT_MODEL_PROVIDER=openai  # Options: openai, gemini, anthropic, deepseek, grok, siliconflow, zhipu, dashscope, openrouter, modelscope, custom
 MCP_LOG_LEVEL=info                 # Log level
 ```
 
@@ -256,11 +284,11 @@ For more detailed information, please refer to the [MCP Server User Guide](docs/
 ### Method 1: Via Interface (Recommended)
 1. Click the "⚙️Settings" button in the upper right corner
 2. Select the "Model Management" tab
-3. Click on the model you need to configure (such as OpenAI, Gemini, DeepSeek, etc.)
+3. Click on the model you need to configure (such as OpenAI, Gemini, DeepSeek, Grok, etc.)
 4. Enter the corresponding API key in the configuration box
 5. Click "Save"
 
-Supported models: OpenAI, Gemini, DeepSeek, Zhipu AI, SiliconFlow, Custom API (OpenAI compatible interface)
+Supported models: OpenAI, Gemini, DeepSeek, Grok, Zhipu AI, SiliconFlow, Custom API (OpenAI compatible interface)
 
 In addition to API keys, you can configure advanced LLM parameters for each model individually. These parameters are configured through a field called `llmParams`, which allows you to specify any parameters supported by the LLM SDK in key-value pairs for fine-grained control over model behavior.
 
@@ -278,6 +306,7 @@ Configure environment variables through the `-e` parameter when deploying with D
 -e VITE_OPENAI_API_KEY=your_key
 -e VITE_GEMINI_API_KEY=your_key
 -e VITE_DEEPSEEK_API_KEY=your_key
+-e VITE_GROK_API_KEY=your_key
 -e VITE_ZHIPU_API_KEY=your_key
 -e VITE_SILICONFLOW_API_KEY=your_key
 
@@ -292,7 +321,7 @@ Configure environment variables through the `-e` parameter when deploying with D
 </details>
 
 ## Local Development
-For detailed documentation, see [Development Documentation](dev.md)
+For detailed documentation, see [Development Documentation](docs/developer/development.md)
 
 <details>
 <summary>Click to view local development commands</summary>
@@ -337,6 +366,7 @@ For detailed project status, see [Project Status Document](docs/project/project-
 - [Project Status](docs/project/project-status.md) - Current progress and plans
 - [Product Requirements](docs/project/prd.md) - Product requirements document
 - [Vercel Deployment Guide](docs/user/deployment/vercel_en.md) - Detailed instructions for Vercel deployment
+- [Cloudflare Deployment Guide](docs/user/deployment/cloudflare-pages_en.md) - Web frontend deployment on Cloudflare Workers / Pages
 
 ## Star History
 

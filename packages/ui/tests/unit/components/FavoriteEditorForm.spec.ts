@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { ref } from 'vue'
-import type { FavoritePrompt } from '@prompt-optimizer/core'
+import {
+  PROMPT_MODEL_SCHEMA_VERSION,
+  createPromptContract,
+  type FavoritePrompt,
+} from '@prompt-optimizer/core'
 
 const resolveAssetIdToDataUrlMock = vi.fn()
 const persistImageSourceAsAssetIdMock = vi.fn()
@@ -39,6 +43,11 @@ vi.mock('vue-i18n', async (importOriginal) => {
 import FavoriteEditorForm from '../../../src/components/FavoriteEditorForm.vue'
 
 const naiveStubs = {
+  NAlert: {
+    name: 'NAlert',
+    template: '<div class="n-alert"><slot /></div>',
+    props: ['type', 'showIcon', 'class'],
+  },
   NAutoComplete: {
     name: 'NAutoComplete',
     template: '<input class="n-auto-complete" :value="value" />',
@@ -53,7 +62,13 @@ const naiveStubs = {
   NCard: {
     name: 'NCard',
     template: '<section class="n-card"><header>{{ title }}</header><slot /><footer><slot name="footer" /></footer></section>',
-    props: ['title', 'size', 'segmented', 'class'],
+    props: ['title', 'size', 'segmented', 'class', 'bordered', 'role', 'ariaModal'],
+  },
+  NModal: {
+    name: 'NModal',
+    template: '<div v-if="show" class="n-modal"><slot /></div>',
+    props: ['show'],
+    emits: ['update:show'],
   },
   NForm: {
     name: 'NForm',
@@ -76,8 +91,8 @@ const naiveStubs = {
   },
   NInput: {
     name: 'NInput',
-    template: '<textarea v-if="type === \'textarea\'" class="n-input" :value="value" /><input v-else class="n-input" :value="value" />',
-    props: ['value', 'type', 'placeholder', 'autosize', 'maxlength', 'showCount'],
+    template: '<textarea v-if="type === \'textarea\'" class="n-input" :value="value" :readonly="readonly">{{ value }}</textarea><input v-else class="n-input" :value="value" :readonly="readonly" />',
+    props: ['value', 'type', 'placeholder', 'autosize', 'maxlength', 'showCount', 'readonly'],
   },
   NScrollbar: {
     name: 'NScrollbar',
@@ -130,7 +145,8 @@ const naiveStubs = {
   FavoriteReproducibilityEditor: {
     name: 'FavoriteReproducibilityEditor',
     template: '<div class="favorite-reproducibility-editor"></div>',
-    props: ['variables', 'examples', 'examplePreviews'],
+    props: ['variables', 'examples', 'examplePreviews', 'panelMode', 'addedExampleIds'],
+    emits: ['update:variables', 'update:examples', 'add-image-to-media'],
   },
   AppPreviewImage: {
     name: 'AppPreviewImage',
@@ -195,6 +211,68 @@ describe('FavoriteEditorForm', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals()
+  })
+
+  it('creates missing category path from garden metadata only when save is confirmed', async () => {
+    const addFavorite = vi.fn(async () => 'fav-saved')
+    const getCategories = vi.fn(async () => [])
+    const addCategory = vi.fn(async ({ name }: { name: string }) => `cat-${name}`)
+
+    const wrapper = mount(FavoriteEditorForm, {
+      props: {
+        mode: 'save',
+        content: 'Imported content',
+        prefill: {
+          title: 'Garden Favorite',
+          metadata: {
+            gardenSnapshot: {
+              meta: {
+                categoryPath: ['图像创作', '海报'],
+              },
+            },
+          },
+        },
+      },
+      global: {
+        stubs: naiveStubs,
+        provide: {
+          services: ref({
+            favoriteImageStorageService: {},
+            imageStorageService: {},
+            favoriteManager: {
+              getAllTags: vi.fn(async () => []),
+              addTag: vi.fn(async () => {}),
+              getCategories,
+              addCategory,
+              addFavorite,
+            },
+          } as any),
+        },
+      },
+    })
+
+    await flushPromises()
+
+    expect(addCategory).not.toHaveBeenCalled()
+
+    await wrapper.find('[data-testid="favorite-editor-save"]').trigger('click')
+    await flushPromises()
+
+    expect(addCategory).toHaveBeenCalledTimes(2)
+    expect(addCategory).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      name: '图像创作',
+      parentId: undefined,
+    }))
+    expect(addCategory).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      name: '海报',
+      parentId: 'cat-图像创作',
+    }))
+    expect(addFavorite).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Garden Favorite',
+      content: 'Imported content',
+      category: 'cat-海报',
+    }))
+    expect(getCategories).toHaveBeenCalled()
   })
 
   it('ignores stale media hydration after switching edited favorites', async () => {
@@ -468,6 +546,601 @@ describe('FavoriteEditorForm', () => {
         images: [{ assetId: 'asset-output', source: 'data:image/png;base64,output-preview' }],
         inputImages: [{ assetId: 'asset-input', source: 'data:image/png;base64,input-preview' }],
       },
+    ])
+  })
+
+  it('adds an example image to the favorite image list only when explicitly requested', async () => {
+    const favorite = createFavoriteWithoutMedia('promote-example-image')
+    const updateFavorite = vi.fn(async () => {})
+    persistImageSourceAsAssetIdMock.mockImplementation(({ source }: { source: string }) =>
+      source.includes('example-output') ? 'persisted-example-output' : null,
+    )
+
+    const wrapper = mount(FavoriteEditorForm, {
+      props: {
+        mode: 'edit',
+        favorite,
+      },
+      global: {
+        stubs: naiveStubs,
+        provide: {
+          services: ref({
+            favoriteImageStorageService: {},
+            imageStorageService: {},
+            favoriteManager: {
+              getAllTags: vi.fn(async () => []),
+              addTag: vi.fn(async () => {}),
+              updateFavorite,
+            },
+          } as any),
+        },
+      },
+    })
+
+    await flushPromises()
+
+    const editors = wrapper.findAllComponents({ name: 'FavoriteReproducibilityEditor' })
+    editors[1].vm.$emit('add-image-to-media', {
+      exampleIndex: 0,
+      field: 'images',
+      source: 'data:image/png;base64,example-output',
+    })
+    editors[1].vm.$emit('add-image-to-media', {
+      exampleIndex: 0,
+      field: 'images',
+      source: 'data:image/png;base64,example-output',
+    })
+    await flushPromises()
+
+    await wrapper.findAll('button').at(-1)?.trigger('click')
+    await flushPromises()
+
+    const savedMetadata = updateFavorite.mock.calls[0]?.[1]?.metadata as Record<string, any>
+    expect(persistImageSourceAsAssetIdMock).toHaveBeenCalledTimes(1)
+    expect(savedMetadata.media).toEqual({
+      coverAssetId: 'persisted-example-output',
+      assetIds: ['persisted-example-output'],
+      urls: [],
+    })
+  })
+
+  it('persists an explicit empty reproducibility draft when clearing prompt asset examples', async () => {
+    const favorite: FavoritePrompt = {
+      ...createFavoriteWithoutMedia('clear-reproducibility'),
+      functionMode: 'context',
+      optimizationMode: 'user',
+      metadata: {
+        promptAsset: {
+          schemaVersion: PROMPT_MODEL_SCHEMA_VERSION,
+          id: 'asset-clear-reproducibility',
+          title: 'Prompt asset with examples',
+          tags: [],
+          contract: createPromptContract('pro-variable', {
+            variables: [{ name: 'topic', required: false }],
+          }),
+          currentVersionId: 'version-1',
+          versions: [
+            {
+              id: 'version-1',
+              version: 1,
+              content: { kind: 'text', text: 'Write about {{topic}}' },
+              createdAt: 1,
+            },
+          ],
+          examples: [
+            {
+              id: 'example-1',
+              basedOnVersionId: 'version-1',
+              input: { parameters: { topic: 'old' } },
+            },
+          ],
+          createdAt: 1,
+          updatedAt: 2,
+        },
+      },
+    }
+    const updateFavorite = vi.fn(async () => {})
+
+    const wrapper = mount(FavoriteEditorForm, {
+      props: {
+        mode: 'edit',
+        favorite,
+      },
+      global: {
+        stubs: naiveStubs,
+        provide: {
+          services: ref({
+            favoriteImageStorageService: {},
+            imageStorageService: {},
+            favoriteManager: {
+              getAllTags: vi.fn(async () => []),
+              addTag: vi.fn(async () => {}),
+              updateFavorite,
+            },
+          } as any),
+        },
+      },
+    })
+
+    await flushPromises()
+
+    const editor = wrapper.findComponent({ name: 'FavoriteReproducibilityEditor' })
+    expect(editor.props('variables')).toHaveLength(1)
+    expect(editor.props('examples')).toHaveLength(1)
+
+    editor.vm.$emit('update:variables', [])
+    editor.vm.$emit('update:examples', [])
+    await flushPromises()
+
+    await wrapper.findAll('button').at(-1)?.trigger('click')
+    await flushPromises()
+
+    const savedMetadata = updateFavorite.mock.calls[0]?.[1]?.metadata as Record<string, any>
+    expect(savedMetadata.reproducibility).toEqual({
+      variables: [],
+      examples: [],
+    })
+  })
+
+  it('renders prompt asset versions without draft mutation actions', async () => {
+    const favorite: FavoritePrompt = {
+      ...createFavoriteWithoutMedia('restore-version-draft'),
+      functionMode: 'basic',
+      optimizationMode: 'system',
+      imageSubMode: undefined,
+      content: 'Current favorite content',
+      metadata: {
+        promptAsset: {
+          schemaVersion: PROMPT_MODEL_SCHEMA_VERSION,
+          id: 'asset-restore-version-draft',
+          title: 'Versioned favorite',
+          tags: [],
+          contract: createPromptContract('basic-system'),
+          currentVersionId: 'version-2',
+          versions: [
+            {
+              id: 'version-1',
+              version: 1,
+              content: { kind: 'text', text: 'Historical content' },
+              createdAt: 1,
+            },
+            {
+              id: 'version-2',
+              version: 2,
+              content: { kind: 'text', text: 'Current favorite content' },
+              createdAt: 2,
+            },
+          ],
+          examples: [],
+          createdAt: 1,
+          updatedAt: 2,
+        },
+      },
+    }
+    const wrapper = mount(FavoriteEditorForm, {
+      props: {
+        mode: 'edit',
+        favorite,
+      },
+      global: {
+        stubs: naiveStubs,
+        provide: {
+          services: ref({
+            favoriteImageStorageService: {},
+            imageStorageService: {},
+              favoriteManager: {
+                getAllTags: vi.fn(async () => []),
+                addTag: vi.fn(async () => {}),
+                updateFavorite: vi.fn(async () => {}),
+              },
+          } as any),
+        },
+      },
+    })
+
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="favorite-prompt-asset-version-list"]').text()).toContain('Historical content')
+    expect(wrapper.find('[data-testid="favorite-prompt-asset-version-restore"]').exists()).toBe(false)
+    expect(wrapper.findComponent('[data-testid="favorite-editor-content"]').props('value')).toBe('Current favorite content')
+  })
+
+  it('opens selected versions in a modal without writing or changing the draft content', async () => {
+    const favorite: FavoritePrompt = {
+      ...createFavoriteWithoutMedia('browse-version-draft'),
+      functionMode: 'basic',
+      optimizationMode: 'system',
+      imageSubMode: undefined,
+      content: 'Current favorite content',
+      metadata: {
+        promptAsset: {
+          schemaVersion: PROMPT_MODEL_SCHEMA_VERSION,
+          id: 'asset-browse-version-draft',
+          title: 'Versioned favorite',
+          tags: [],
+          contract: createPromptContract('basic-system'),
+          currentVersionId: 'version-2',
+          versions: [
+            {
+              id: 'version-1',
+              version: 1,
+              content: { kind: 'text', text: 'Historical content' },
+              createdAt: 1,
+            },
+            {
+              id: 'version-2',
+              version: 2,
+              content: { kind: 'text', text: 'Current favorite content' },
+              createdAt: 2,
+            },
+          ],
+          examples: [],
+          createdAt: 1,
+          updatedAt: 2,
+        },
+      },
+    }
+    const favoriteManager = {
+      getAllTags: vi.fn(async () => []),
+      addTag: vi.fn(async () => {}),
+      updateFavorite: vi.fn(async () => {}),
+      setFavoritePromptAssetCurrentVersion: vi.fn(async () => {}),
+      deleteFavoritePromptAssetVersion: vi.fn(async () => {}),
+    }
+
+    const wrapper = mount(FavoriteEditorForm, {
+      props: {
+        mode: 'edit',
+        favorite,
+      },
+      global: {
+        stubs: naiveStubs,
+        provide: {
+          services: ref({
+            favoriteImageStorageService: {},
+            imageStorageService: {},
+            favoriteManager,
+          } as any),
+        },
+      },
+    })
+
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="favorite-editor-version-preview"]').exists()).toBe(false)
+
+    await wrapper.get('[data-testid="favorite-prompt-asset-version-view-1"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="favorite-prompt-asset-version-modal-content"]').text()).toContain('Historical content')
+    expect(wrapper.findComponent('[data-testid="favorite-editor-content"]').props('value')).toBe('Current favorite content')
+    expect(favoriteManager.updateFavorite).not.toHaveBeenCalled()
+    expect(favoriteManager.setFavoritePromptAssetCurrentVersion).not.toHaveBeenCalled()
+    expect(favoriteManager.deleteFavoritePromptAssetVersion).not.toHaveBeenCalled()
+  })
+
+  it('sets a historical version as current through the explicit asset action', async () => {
+    const favorite: FavoritePrompt = {
+      ...createFavoriteWithoutMedia('set-current-version'),
+      functionMode: 'basic',
+      optimizationMode: 'system',
+      imageSubMode: undefined,
+      content: 'Current favorite content',
+      metadata: {
+        promptAsset: {
+          schemaVersion: PROMPT_MODEL_SCHEMA_VERSION,
+          id: 'asset-set-current-version',
+          title: 'Versioned favorite',
+          tags: [],
+          contract: createPromptContract('basic-system'),
+          currentVersionId: 'version-2',
+          versions: [
+            {
+              id: 'version-1',
+              version: 1,
+              content: { kind: 'text', text: 'Historical content' },
+              createdAt: 1,
+            },
+            {
+              id: 'version-2',
+              version: 2,
+              content: { kind: 'text', text: 'Current favorite content' },
+              createdAt: 2,
+            },
+          ],
+          examples: [],
+          createdAt: 1,
+          updatedAt: 2,
+        },
+      },
+    }
+    const favoriteManager = {
+      getAllTags: vi.fn(async () => []),
+      addTag: vi.fn(async () => {}),
+      updateFavorite: vi.fn(async () => {}),
+      setFavoritePromptAssetCurrentVersion: vi.fn(async () => {}),
+      deleteFavoritePromptAssetVersion: vi.fn(async () => {}),
+    }
+
+    const wrapper = mount(FavoriteEditorForm, {
+      props: {
+        mode: 'edit',
+        favorite,
+      },
+      global: {
+        stubs: naiveStubs,
+        provide: {
+          services: ref({
+            favoriteImageStorageService: {},
+            imageStorageService: {},
+            favoriteManager,
+          } as any),
+        },
+      },
+    })
+
+    await flushPromises()
+    await wrapper.get('[data-testid="favorite-prompt-asset-version-set-current"]').trigger('click')
+    await flushPromises()
+
+    expect(favoriteManager.setFavoritePromptAssetCurrentVersion).toHaveBeenCalledWith('set-current-version', 'version-1')
+    expect(favoriteManager.updateFavorite).not.toHaveBeenCalled()
+    expect(favoriteManager.deleteFavoritePromptAssetVersion).not.toHaveBeenCalled()
+    expect(wrapper.emitted('saved')).toEqual([['set-current-version']])
+  })
+
+  it('deletes only a non-current version through the explicit asset action', async () => {
+    const favorite: FavoritePrompt = {
+      ...createFavoriteWithoutMedia('delete-version'),
+      functionMode: 'basic',
+      optimizationMode: 'system',
+      imageSubMode: undefined,
+      content: 'Current favorite content',
+      metadata: {
+        promptAsset: {
+          schemaVersion: PROMPT_MODEL_SCHEMA_VERSION,
+          id: 'asset-delete-version',
+          title: 'Versioned favorite',
+          tags: [],
+          contract: createPromptContract('basic-system'),
+          currentVersionId: 'version-2',
+          versions: [
+            {
+              id: 'version-1',
+              version: 1,
+              content: { kind: 'text', text: 'Historical content' },
+              createdAt: 1,
+            },
+            {
+              id: 'version-2',
+              version: 2,
+              content: { kind: 'text', text: 'Current favorite content' },
+              createdAt: 2,
+            },
+          ],
+          examples: [],
+          createdAt: 1,
+          updatedAt: 2,
+        },
+      },
+    }
+    const favoriteManager = {
+      getAllTags: vi.fn(async () => []),
+      addTag: vi.fn(async () => {}),
+      updateFavorite: vi.fn(async () => {}),
+      setFavoritePromptAssetCurrentVersion: vi.fn(async () => {}),
+      deleteFavoritePromptAssetVersion: vi.fn(async () => {}),
+    }
+
+    const wrapper = mount(FavoriteEditorForm, {
+      props: {
+        mode: 'edit',
+        favorite,
+      },
+      global: {
+        stubs: naiveStubs,
+        provide: {
+          services: ref({
+            favoriteImageStorageService: {},
+            imageStorageService: {},
+            favoriteManager,
+          } as any),
+        },
+      },
+    })
+
+    await flushPromises()
+    const deleteButtons = wrapper.findAll('[data-testid="favorite-prompt-asset-version-delete"]')
+    expect(deleteButtons).toHaveLength(2)
+    const deletableButton = deleteButtons.find((button) => !(button.element as HTMLButtonElement).disabled)
+    await deletableButton?.trigger('click')
+    await flushPromises()
+
+    expect(favoriteManager.deleteFavoritePromptAssetVersion).toHaveBeenCalledWith('delete-version', 'version-1')
+    expect(favoriteManager.updateFavorite).not.toHaveBeenCalled()
+    expect(favoriteManager.setFavoritePromptAssetCurrentVersion).not.toHaveBeenCalled()
+    expect(wrapper.emitted('saved')).toEqual([['delete-version']])
+  })
+
+  it('disables deleting the current version and the final remaining version', async () => {
+    const favorite: FavoritePrompt = {
+      ...createFavoriteWithoutMedia('delete-guard-version'),
+      functionMode: 'basic',
+      optimizationMode: 'system',
+      imageSubMode: undefined,
+      content: 'Current favorite content',
+      metadata: {
+        promptAsset: {
+          schemaVersion: PROMPT_MODEL_SCHEMA_VERSION,
+          id: 'asset-delete-guard-version',
+          title: 'Versioned favorite',
+          tags: [],
+          contract: createPromptContract('basic-system'),
+          currentVersionId: 'version-2',
+          versions: [
+            {
+              id: 'version-1',
+              version: 1,
+              content: { kind: 'text', text: 'Historical content' },
+              createdAt: 1,
+            },
+            {
+              id: 'version-2',
+              version: 2,
+              content: { kind: 'text', text: 'Current favorite content' },
+              createdAt: 2,
+            },
+          ],
+          examples: [],
+          createdAt: 1,
+          updatedAt: 2,
+        },
+      },
+    }
+
+    const wrapper = mount(FavoriteEditorForm, {
+      props: {
+        mode: 'edit',
+        favorite,
+      },
+      global: {
+        stubs: naiveStubs,
+        provide: {
+          services: ref({
+            favoriteImageStorageService: {},
+            imageStorageService: {},
+            favoriteManager: {
+              getAllTags: vi.fn(async () => []),
+              addTag: vi.fn(async () => {}),
+              updateFavorite: vi.fn(async () => {}),
+              setFavoritePromptAssetCurrentVersion: vi.fn(async () => {}),
+              deleteFavoritePromptAssetVersion: vi.fn(async () => {}),
+            },
+          } as any),
+        },
+      },
+    })
+
+    await flushPromises()
+    let deleteButtons = wrapper.findAll('[data-testid="favorite-prompt-asset-version-delete"]')
+    expect(deleteButtons.some((button) => (button.element as HTMLButtonElement).disabled)).toBe(true)
+
+    await wrapper.setProps({
+      favorite: {
+        ...favorite,
+        metadata: {
+          promptAsset: {
+            ...(favorite.metadata!.promptAsset as Record<string, unknown>),
+            currentVersionId: 'version-2',
+            versions: [
+              {
+                id: 'version-2',
+                version: 2,
+                content: { kind: 'text', text: 'Current favorite content' },
+                createdAt: 2,
+              },
+            ],
+          },
+        },
+      },
+    })
+    await flushPromises()
+
+    deleteButtons = wrapper.findAll('[data-testid="favorite-prompt-asset-version-delete"]')
+    expect(deleteButtons).toHaveLength(1)
+    expect((deleteButtons[0].element as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('defaults test result updates to appending examples without replacing favorite content', async () => {
+    const favorite: FavoritePrompt = {
+      ...createFavoriteWithoutMedia('append-example-only'),
+      functionMode: 'context',
+      optimizationMode: 'user',
+      content: 'Existing favorite content',
+      metadata: {
+        media: {
+          coverAssetId: 'existing-cover',
+          assetIds: ['existing-cover'],
+          urls: [],
+        },
+        reproducibility: {
+          variables: [{ name: 'topic', required: false }],
+          examples: [
+            {
+              id: 'existing-example',
+              parameters: { topic: 'old' },
+            },
+          ],
+        },
+      },
+    }
+    const updateFavorite = vi.fn(async () => {})
+
+    const wrapper = mount(FavoriteEditorForm, {
+      props: {
+        mode: 'edit',
+        favorite,
+        content: 'Incoming test result content',
+        applyIncomingContentOnEdit: true,
+        prefill: {
+          functionMode: 'basic',
+          optimizationMode: 'system',
+          updateIntent: 'examples',
+          reproducibilityDraft: {
+            variables: [],
+            examples: [
+              {
+                id: 'test-run:implicit:image-text2image:test:b',
+                parameters: { topic: 'new' },
+                images: [],
+                imageAssetIds: [],
+                inputImages: [],
+                inputImageAssetIds: [],
+              },
+            ],
+          },
+        },
+      },
+      global: {
+        stubs: naiveStubs,
+        provide: {
+          services: ref({
+            favoriteImageStorageService: {},
+            imageStorageService: {},
+            favoriteManager: {
+              getAllTags: vi.fn(async () => []),
+              addTag: vi.fn(async () => {}),
+              updateFavorite,
+            },
+          } as any),
+        },
+      },
+    })
+
+    await flushPromises()
+
+    expect(wrapper.find('.favorite-surface-section--changed').exists()).toBe(true)
+    const editor = wrapper.findComponent({ name: 'FavoriteReproducibilityEditor' })
+    expect(editor.props('panelMode')).toBe('review')
+    expect(editor.props('addedExampleIds')).toEqual(['ex-002'])
+
+    await wrapper.findAll('button').at(-1)?.trigger('click')
+    await flushPromises()
+
+    expect(updateFavorite).toHaveBeenCalledWith('append-example-only', expect.objectContaining({
+      content: 'Existing favorite content',
+      functionMode: 'context',
+      optimizationMode: 'user',
+    }))
+    const savedMetadata = updateFavorite.mock.calls[0]?.[1]?.metadata as Record<string, any>
+    expect(savedMetadata.media).toEqual({
+      coverAssetId: 'existing-cover',
+      assetIds: ['existing-cover'],
+      urls: [],
+    })
+    expect(savedMetadata.reproducibility.examples.map((example: any) => example.id)).toEqual([
+      'existing-example',
+      'ex-002',
     ])
   })
 })

@@ -18,9 +18,12 @@
             :text="$t('nav.favorites')"
             @click="emit('open-favorites')"
             :type="favoritesActive ? 'primary' : 'default'"
+            data-testid="header-favorites-page-action"
             size="medium"
             :ghost="false"
             :round="true"
+            :title="$t('favorites.page.title')"
+            :aria-current="favoritesActive ? 'page' : undefined"
             :class="{ 'page-destination-active': favoritesActive }"
         />
     </div>
@@ -54,15 +57,18 @@
             :ghost="false"
             :round="true"
         />
-        <ActionButtonUI
-            icon="💾"
-            :text="$t('nav.dataManager')"
-            @click="emit('open-data-manager')"
-            type="default"
-            size="medium"
-            :ghost="false"
-            :round="true"
-        />
+        <NBadge :show="backupReminderDue" dot processing>
+            <ActionButtonUI
+                icon="💾"
+                :text="$t('nav.dataManager')"
+                @click="emit('open-data-manager')"
+                :type="backupReminderDue ? 'warning' : 'default'"
+                size="medium"
+                :ghost="false"
+                :round="true"
+                :title="backupReminderDue ? $t('dataManager.backupReminder.tooltip') : $t('nav.dataManager')"
+            />
+        </NBadge>
         <ActionButtonUI
             icon="🔣"
             :text="$t('nav.variableManager')"
@@ -141,15 +147,17 @@ import ActionButtonUI from '../ActionButton.vue'
 import ThemeToggleUI from '../ThemeToggleUI.vue'
 import LanguageSwitchDropdown from '../LanguageSwitchDropdown.vue'
 import UpdaterIcon from '../UpdaterIcon.vue'
-import { NButton, NTag } from 'naive-ui'
+import { NBadge, NButton, NPopover, NTag } from 'naive-ui'
 
 interface Props {
     appVersion: string
     favoritesActive?: boolean
+    backupReminderDue?: boolean
 }
 
 withDefaults(defineProps<Props>(), {
     favoritesActive: false,
+    backupReminderDue: false,
 })
 
 // ========================
@@ -201,13 +209,42 @@ const emit = defineEmits<{
     gap: 8px;
 }
 
+.page-destination-group {
+    padding-right: 8px;
+    border-right: 1px solid var(--n-border-color);
+}
 .page-destination-active {
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-color, #18a058) 18%, transparent);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--n-primary-color) 18%, transparent);
 }
 
 .brand-title {
     display: inline-flex;
-    align-items: center;
-    padding: 6px 10px 6px 6px;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+    text-align: left;
+}
+
+.about-link-label {
+    flex-shrink: 0;
+    font-size: 11px;
+    color: var(--n-text-color-3);
+}
+
+.about-link-value {
+    min-width: 0;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--n-text-color-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.about-link-icon {
+    width: 12px;
+    height: 12px;
+    flex-shrink: 0;
+    color: var(--n-text-color-3);
 }
 </style>

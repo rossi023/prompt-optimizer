@@ -139,6 +139,50 @@ hide:
     </div>
   </section>
 
+  <section class="po-docs-section po-docs-section--auxiliary">
+    <div class="po-docs-section-head">
+      <h2>Prompt Assets and Auxiliary Features</h2>
+      <p>Prompts can start from manual writing, templates, local imports, or Prompt Garden, then become reusable favorite assets.</p>
+    </div>
+    <div class="po-docs-index-list">
+      <a class="po-docs-index-row" href="basic/prompt-garden/">
+        <div>
+          <h3>Prompt Garden</h3>
+          <p>Use it as an optional prompt source for importable prompts, examples, and media.</p>
+        </div>
+        <code>/basic/prompt-garden</code>
+      </a>
+      <a class="po-docs-index-row" href="basic/favorites/">
+        <div>
+          <h3>Favorites &amp; Import</h3>
+          <p>Save stable prompts as reusable assets with examples, media, and source details.</p>
+        </div>
+        <code>/basic/favorites</code>
+      </a>
+      <a class="po-docs-index-row" href="auxiliary/smart-fill/">
+        <div>
+          <h3>Smart Variable Fill</h3>
+          <p>Fill core variables, AI automatically derives other variables.</p>
+        </div>
+        <code>/auxiliary/smart-fill</code>
+      </a>
+      <a class="po-docs-index-row" href="auxiliary/replicate/">
+        <div>
+          <h3>Text-to-Image Replicate</h3>
+          <p>Reverse-engineer prompts and variables from reference images.</p>
+        </div>
+        <code>/auxiliary/replicate</code>
+      </a>
+      <a class="po-docs-index-row" href="auxiliary/style-learn/">
+        <div>
+          <h3>Style Learning</h3>
+          <p>Preserve prompt subject, learn style from reference images.</p>
+        </div>
+        <code>/auxiliary/style-learn</code>
+      </a>
+    </div>
+  </section>
+
   <section class="po-docs-section po-docs-section--deep">
     <div class="po-docs-section-head">
       <h2>Keep going</h2>

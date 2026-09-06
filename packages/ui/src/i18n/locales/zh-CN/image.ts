@@ -197,7 +197,15 @@ const messages = {
       "dynamicLoaded": "已加载动态模型",
       "dynamicFailed": "加载动态模型失败，已回退静态列表",
       "connectionRequired": "请先填写并校验连接信息",
-      "refreshFailed": "刷新模型失败"
+      "refreshFailed": "刷新模型失败",
+      "quickSwitch": {
+        "title": "切换当前图像模型",
+        "placeholder": "选择图像模型",
+        "modelTagTitle": "点击切换当前图像配置的模型",
+        "fetchFailed": "获取在线图像模型列表失败：{error}，可继续选择本地默认模型。",
+        "updateSuccess": "已切换为 {model}",
+        "updateFailed": "切换图像模型失败：{error}"
+      }
     },
     "parameters": {
       "noParameters": "该模型暂无可配置参数",
@@ -208,6 +216,14 @@ const messages = {
       "size": {
         "label": "图像尺寸",
         "description": "生成图像的分辨率/尺寸，如 1024x1024"
+      },
+      "aspect_ratio": {
+        "label": "画面比例",
+        "description": "生成图像的画面宽高比例"
+      },
+      "resolution": {
+        "label": "分辨率档位",
+        "description": "生成图像的分辨率档位"
       },
       "quality": {
         "label": "图像质量",
@@ -313,6 +329,13 @@ const messages = {
     "viewOnGitHub": "在 GitHub 上查看",
     "devEnvironment": "开发环境：更新检查已禁用",
     "clickToCheck": "点击检查更新",
+    "manualUpdateTitle": "macOS 当前需要手动更新",
+    "manualUpdateDescription": "当前 macOS 发布包未使用 Apple Developer ID 签名，无法在应用内完成安装。请前往版本发布页下载适用于本机的 DMG，退出应用后将其拖入“应用程序”并选择替换。若首次打开被拦截，请在“系统设置 → 隐私与安全性”中允许打开。",
+    "updatePolicyUnavailableTitle": "当前只能手动更新",
+    "updatePolicyUnavailableDescription": "无法确认当前构建是否支持应用内安装。为避免更新失败，请前往版本发布页手动下载安装包。",
+    "openReleasePage": "打开 GitHub Release",
+    "openReleaseFailed": "无法打开版本发布页，请稍后重试。",
+    "releasePageUnavailable": "当前未获取到版本发布页地址，请重新检查更新后再试。",
     "noReleasesFound": "未找到发布版本。此项目可能尚未发布任何版本。",
     "noStableReleasesFound": "未找到稳定版本。可能只有预发布版本可用。"
   }

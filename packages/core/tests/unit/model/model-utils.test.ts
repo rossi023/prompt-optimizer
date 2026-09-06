@@ -42,6 +42,19 @@ describe('generateTextModelConfig', () => {
     })
   })
 
+  it('should map env customHeaders into connectionConfig', () => {
+    const config = generateTextModelConfig({
+      ...baseEnvConfig,
+      customHeaders: {
+        'x-auth-token': 'gateway-token',
+      },
+    })
+
+    expect(config.connectionConfig.customHeaders).toEqual({
+      'x-auth-token': 'gateway-token',
+    })
+  })
+
   it('should default paramOverrides to an empty object when params are missing', () => {
     const config = generateTextModelConfig(baseEnvConfig)
 
@@ -52,7 +65,7 @@ describe('generateTextModelConfig', () => {
     const config = generateTextModelConfig(baseEnvConfig)
 
     expect(config.providerMeta.id).toBe('openai-compatible')
-    expect(config.providerMeta.name).toBe('Custom API (OpenAI Compatible)')
+    expect(config.providerMeta.name).toBe('OpenAI Compatible (Custom)')
     expect(config.connectionConfig.requestStyle).toBe('chat_completions')
     expect(config.modelMeta.providerId).toBe('openai-compatible')
   })

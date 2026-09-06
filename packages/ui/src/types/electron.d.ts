@@ -13,6 +13,7 @@ import type {
   ImportResult,
   ContextMode
 } from '@prompt-optimizer/core'
+import type { RemoteStorageIpcApi } from '../utils/remote-backup'
 
 // 基础响应类型
 interface ElectronErrorPayload {
@@ -37,13 +38,24 @@ interface AppAPI {
 }
 
 // 更新器相关API - 简单直接的类型定义
+interface UpdateDelivery {
+  mode: 'in-app' | 'manual-release'
+  reason: 'macos-unsigned' | 'policy-unavailable' | null
+  platform: string
+  arch: string
+  fallbackReleaseUrl: string | null
+}
+
 interface UpdaterAPI {
   checkUpdate(): Promise<unknown>
   checkAllVersions(): Promise<{
     currentVersion: string
-    stable?: {
-      remoteVersion?: string
-      remoteReleaseUrl?: string
+    updateDelivery: UpdateDelivery
+    inProgress?: boolean
+    message?: string
+    stable: {
+      remoteVersion?: string | null
+      remoteReleaseUrl?: string | null
       error?: string
       noVersionFound?: boolean
       hasUpdate?: boolean
@@ -51,10 +63,10 @@ interface UpdaterAPI {
       versionType?: string
       releaseDate?: string
       releaseNotes?: string
-    }
-    prerelease?: {
-      remoteVersion?: string
-      remoteReleaseUrl?: string
+    } | null
+    prerelease: {
+      remoteVersion?: string | null
+      remoteReleaseUrl?: string | null
       error?: string
       noVersionFound?: boolean
       hasUpdate?: boolean
@@ -62,8 +74,9 @@ interface UpdaterAPI {
       versionType?: string
       releaseDate?: string
       releaseNotes?: string
-    }
+    } | null
   }>
+  openReleasePage(version?: string): Promise<{ url: string }>
   downloadSpecificVersion(versionType: 'stable' | 'prerelease'): Promise<{
     hasUpdate: boolean
     message: string
@@ -121,6 +134,10 @@ interface LlmAPI {
   sendMessageStream(messages: unknown[], provider: string, callbacks: LlmStreamCallbacks): Promise<void>
   sendMessageStreamWithTools(messages: unknown[], provider: string, tools: unknown[], callbacks: LlmStreamCallbacks): Promise<void>
   fetchModelList(provider: string, customConfig?: unknown): Promise<Array<{ value: string; label: string }>>
+}
+
+interface ImageUnderstandingAPI {
+  understand(request: unknown): Promise<unknown>
 }
 
 // 图像生成API
@@ -201,10 +218,12 @@ interface ElectronAPI {
   updater: UpdaterAPI
   shell: ShellAPI
   llm: LlmAPI
+  imageUnderstanding: ImageUnderstandingAPI
   image: ImageAPI
   imageModel: ImageModelAPI
   context: ContextAPI
   data: DataAPI
+  remoteStorage: RemoteStorageIpcApi
   on: EventAPI['on']
   off: EventAPI['off']
   once: EventAPI['once']
@@ -269,9 +288,11 @@ export type {
   ContextAPI,
   DataAPI,
   DataStorageInfo,
+  RemoteStorageIpcApi,
   ElectronAPI,
   DownloadProgress,
   UpdateInfo,
+  UpdateDelivery,
   VersionCheckResult,
   DownloadResult
 }

@@ -48,26 +48,38 @@ describe('OpenAIImageAdapter', () => {
         capabilities: {
           text2image: true,
           image2image: expect.any(Boolean),
-          multiImage: expect.any(Boolean)
+          multiImage: true
         },
         parameterDefinitions: expect.any(Array)
       })
     })
 
-    test('should include quality and size parameters', () => {
+    test('should expose supported GPT Image 2 parameters', () => {
       const models = adapter.getModels()
       const model = models.find(m => m.id === 'gpt-image-2')
 
       expect(model?.parameterDefinitions).toBeDefined()
       const qualityParam = model?.parameterDefinitions?.find(p => p.name === 'quality')
       const sizeParam = model?.parameterDefinitions?.find(p => p.name === 'size')
+      const backgroundParam = model?.parameterDefinitions?.find(p => p.name === 'background')
 
       expect(qualityParam).toBeDefined()
       expect(qualityParam?.type).toBe('string')
       expect(qualityParam?.allowedValues).toEqual(expect.arrayContaining(['auto', 'high', 'medium', 'low']))
 
       expect(sizeParam).toBeDefined()
-      expect(sizeParam?.allowedValues).toContain('1024x1024')
+      expect(sizeParam?.allowedValues).toEqual([
+        '1024x1024',
+        '1536x1024',
+        '1024x1536',
+        '2048x2048',
+        '2048x1152',
+        '3840x2160',
+        '2160x3840',
+        'auto'
+      ])
+
+      expect(backgroundParam?.allowedValues).toEqual(['auto', 'opaque'])
     })
   })
 
@@ -136,7 +148,7 @@ describe('OpenAIImageAdapter', () => {
         },
         paramOverrides: {
           quality: 'standard',
-          size: '1024x1024'
+          size: '3840x2160'
         }
       }
 
@@ -170,6 +182,11 @@ describe('OpenAIImageAdapter', () => {
       expect(result.text).toBe('A beautiful landscape with mountains and lakes, painted in a realistic style')
       expect(result.metadata?.configId).toBe(config.id)
       expect(result.metadata?.modelId).toBe(config.modelId)
+
+      const [, options] = (global.fetch as any).mock.calls[0]
+      const body = JSON.parse(options.body)
+      expect(body.size).toBe('3840x2160')
+      expect(body.response_format).toBeUndefined()
     })
 
     test('should generate single image with legacy id allowed', async () => {
@@ -196,7 +213,7 @@ describe('OpenAIImageAdapter', () => {
       const mockResponse = {
         created: Date.now(),
         data: [
-          { b64_json: 'Y2F0LWltYWdlLWJhc2U2NA==' }
+          { url: 'https://example.com/cat.png' }
         ]
       }
 
@@ -208,7 +225,112 @@ describe('OpenAIImageAdapter', () => {
       const result = await adapter.generate(request, config)
 
       expect(result.images).toHaveLength(1)
-      expect(result.images[0].b64).toBeDefined()
+      expect(result.images[0].url).toBe('https://example.com/cat.png')
+    })
+
+    test('should submit single image edits with the single image field', async () => {
+      const config: ImageModelConfig = {
+        id: 'test-openai-edit-config',
+        name: 'Test OpenAI Edit Config',
+        providerId: 'openai',
+        modelId: 'gpt-image-2',
+        enabled: true,
+        connectionConfig: {
+          apiKey: 'test-api-key'
+        },
+        paramOverrides: {
+          size: '1024x1024'
+        }
+      }
+
+      const request: ImageRequest = {
+        prompt: 'make this reference more cinematic',
+        configId: config.id,
+        inputImage: {
+          b64: 'aGVsbG8=',
+          mimeType: 'image/png'
+        },
+        count: 1
+      }
+
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          data: [{ b64_json: 'ZWRpdA==' }]
+        })
+      })
+
+      await adapter.generate(request, config)
+
+      const [url, options] = (global.fetch as any).mock.calls[0]
+      expect(url).toBe('https://api.openai.com/v1/images/edits')
+      expect(options.body).toBeInstanceOf(FormData)
+
+      const formData = options.body as FormData
+      expect(formData.get('model')).toBe('gpt-image-2')
+      expect(formData.get('prompt')).toBe('make this reference more cinematic')
+      expect(formData.get('size')).toBe('1024x1024')
+      expect(formData.get('n')).toBe('1')
+      expect(formData.get('response_format')).toBeNull()
+      expect(formData.getAll('image')).toHaveLength(1)
+      expect(formData.getAll('image[]')).toHaveLength(0)
+    })
+
+    test('should submit multiple edit images as OpenAI image array fields', async () => {
+      const config: ImageModelConfig = {
+        id: 'test-openai-multi-edit-config',
+        name: 'Test OpenAI Multi Edit Config',
+        providerId: 'openai',
+        modelId: 'gpt-image-2',
+        enabled: true,
+        connectionConfig: {
+          apiKey: 'test-api-key'
+        },
+        paramOverrides: {
+          size: '1024x1024',
+          outputMimeType: 'image/png'
+        }
+      }
+
+      const request: ImageRequest = {
+        prompt: 'combine these two references into one scene',
+        configId: config.id,
+        inputImages: [
+          { b64: 'aGVsbG8=', mimeType: 'image/png' },
+          { b64: 'd29ybGQ=', mimeType: 'image/jpeg' }
+        ],
+        count: 1,
+        paramOverrides: {
+          batch_size: 4,
+          n: 3,
+          outputMimeType: 'image/png'
+        }
+      }
+
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          data: [{ b64_json: 'bXVsdGktZWRpdA==' }]
+        })
+      })
+
+      const result = await adapter.generate(request, config)
+
+      expect(result.images).toHaveLength(1)
+      const [url, options] = (global.fetch as any).mock.calls[0]
+      expect(url).toBe('https://api.openai.com/v1/images/edits')
+      expect(options.body).toBeInstanceOf(FormData)
+
+      const formData = options.body as FormData
+      expect(formData.get('model')).toBe('gpt-image-2')
+      expect(formData.get('prompt')).toBe('combine these two references into one scene')
+      expect(formData.get('size')).toBe('1024x1024')
+      expect(formData.get('n')).toBe('1')
+      expect(formData.get('batch_size')).toBeNull()
+      expect(formData.get('outputMimeType')).toBeNull()
+      expect(formData.get('response_format')).toBeNull()
+      expect(formData.getAll('image')).toHaveLength(0)
+      expect(formData.getAll('image[]')).toHaveLength(2)
     })
 
     test('should handle content policy violation', async () => {

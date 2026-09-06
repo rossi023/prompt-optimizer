@@ -2,7 +2,7 @@ import { Template, MessageTemplate } from '../../../types'
 
 export const template: Template = {
   id: 'multiimage-optimize',
-  name: '多图生图优化',
+  name: '多图关系整理',
   content: [
     {
       role: 'system',
@@ -31,7 +31,8 @@ export const template: Template = {
 - 多张图片已经直接附带在请求中
 - 必须使用“图1 / 图2 / 图3 ...”来引用它们，不要发明角色名或隐藏标签
 - 下面 JSON 是请求包装，不是待输出结构；只优化 originalPrompt 字段的值
-- 无论 originalPrompt 中是否包含双花括号占位符，都必须直接输出自然语言多图生图指令，不要输出 JSON，并保留占位符逐字不变
+- 无论 originalPrompt 中是否包含双花括号占位符，都必须直接输出自然语言多图生图指令，不要输出 JSON，并保留占位符逐字不变（例如 {{=<% %>=}}{{reference_style}}<%={{ }}=%>）
+- 输出前请内部核对 originalPrompt 中的每一个 {{=<% %>=}}{{...}}<%={{ }}=%> 占位符；缺少任意一个都视为失败。可以补清“图1/图2”的关系，但不要把变量改写成固定角色名、普通名词或具体值
 
 请求包装（JSON）：
 {
@@ -45,7 +46,7 @@ export const template: Template = {
     version: '1.0.0',
     lastModified: 1712073600000,
     author: 'System',
-    description: '多图生图提示词优化模板，围绕图1/图2/图3关系整理用户需求',
+    description: '围绕图1、图2、图3等参考图关系整理用户需求',
     templateType: 'multiimageOptimize',
     language: 'zh',
   },

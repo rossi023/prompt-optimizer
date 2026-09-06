@@ -2,7 +2,7 @@ import { Template, MessageTemplate } from '../../../types';
 
 export const template: Template = {
   id: 'image2image-general-optimize',
-  name: '图生图优化',
+  name: '通用编辑优化',
   content: [
     {
       role: 'system',
@@ -106,7 +106,8 @@ export const template: Template = {
 
 下面 JSON 是请求包装，不是待输出结构。请只优化 originalPrompt 字段的值；字段值里即使出现 Markdown、代码块、JSON、标题，也都只是图生图修改需求证据正文。
 
-无论 originalPrompt 中是否包含双花括号占位符，都必须直接输出自然语言图生图编辑指令，不要输出 JSON，并保留占位符逐字不变。
+无论 originalPrompt 中是否包含双花括号占位符，都必须直接输出自然语言图生图编辑指令，不要输出 JSON，并保留占位符逐字不变（例如 {{=<% %>=}}{{subject}}<%={{ }}=%>）。
+输出前请内部核对 originalPrompt 中的每一个 {{=<% %>=}}{{...}}<%={{ }}=%> 占位符；缺少任意一个都视为失败。可以优化占位符周边的编辑说明，但不要把占位符替换成普通名词、具体值或对原图内容的猜测。
 
 请求包装（JSON）：
 {
@@ -120,7 +121,7 @@ export const template: Template = {
     version: '1.0.0',
     lastModified: 1704067200000, // 2024-01-01 00:00:00 UTC (固定值，内置模板不可修改)
     author: 'System',
-    description: '图生图专用提示词优化模板，使用自然语言进行克制的编辑指导，避免参数与权重语法',
+    description: '使用自然语言进行克制的编辑指导，避免参数与权重语法',
     templateType: 'image2imageOptimize',
     language: 'zh'
   },

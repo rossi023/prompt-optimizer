@@ -30,6 +30,18 @@ vi.mock('vue-i18n', async (importOriginal) => {
           'favorites.manager.preview.reproducibility.variableCount': `${params?.count ?? 0} variables`,
           'favorites.manager.preview.reproducibility.exampleCount': `${params?.count ?? 0} examples`,
           'favorites.manager.preview.reproducibility.hasInputImages': 'Has input images',
+          'favorites.manager.preview.reproducibility.applyExample': 'Use this example',
+          'favorites.version.title': 'Versions',
+          'favorites.version.current': 'Current',
+          'favorites.version.itemLabel': `v${params?.version ?? ''}`,
+          'favorites.version.previewTitle': `View version v${params?.version ?? ''}`,
+          'favorites.version.closePreview': 'Close',
+          'favorites.version.currentVersion': `Current version v${params?.version ?? ''}`,
+          'favorites.version.createdAt': `Created ${params?.time ?? ''}`.trim(),
+          'favorites.version.updatedAt': `Updated ${params?.time ?? ''}`.trim(),
+          'favorites.version.emptyPreview': 'No content preview',
+          'favorites.version.setCurrent': 'Set current',
+          'favorites.version.delete': 'Delete',
           'favorites.manager.preview.reproducibility.variableName': 'Variable',
           'favorites.manager.preview.reproducibility.variableDefault': 'Default',
           'favorites.manager.preview.reproducibility.variableRequired': 'Required',
@@ -50,7 +62,6 @@ vi.mock('vue-i18n', async (importOriginal) => {
           'favorites.manager.card.imageSubMode.multiimage': 'Multi-Image',
           'contextMode.optimizationMode.message': 'Message',
           'contextMode.optimizationMode.variable': 'Variable',
-          'common.fullscreen': 'Fullscreen',
           'favorites.manager.time.justNow': 'Just now',
           'favorites.manager.time.minutesAgo': `${params?.minutes ?? 0} minutes ago`,
           'favorites.manager.time.hoursAgo': `${params?.hours ?? 0} hours ago`,
@@ -89,8 +100,19 @@ const naiveStubs = {
   },
   NCard: {
     name: 'NCard',
-    template: '<section class="n-card"><header><slot name="header" />{{ title }}</header><div><slot /></div></section>',
-    props: ['size', 'segmented', 'title', 'class'],
+    template: '<section class="n-card"><header><slot name="header" />{{ title }}</header><div><slot /></div><footer><slot name="footer" /></footer></section>',
+    props: ['size', 'segmented', 'title', 'class', 'bordered', 'role', 'ariaModal'],
+  },
+  NModal: {
+    name: 'NModal',
+    template: '<div v-if="show" class="n-modal"><slot /></div>',
+    props: ['show'],
+    emits: ['update:show'],
+  },
+  NInput: {
+    name: 'NInput',
+    template: '<textarea v-if="type === \'textarea\'" class="n-input" :value="value" :readonly="readonly">{{ value }}</textarea><input v-else class="n-input" :value="value" :readonly="readonly" />',
+    props: ['value', 'type', 'readonly', 'autosize'],
   },
   NCollapse: {
     name: 'NCollapse',
@@ -101,6 +123,11 @@ const naiveStubs = {
     name: 'NCollapseItem',
     template: '<section class="n-collapse-item"><header>{{ title }}</header><div><slot /></div></section>',
     props: ['name', 'title'],
+  },
+  NScrollbar: {
+    name: 'NScrollbar',
+    template: '<div class="n-scrollbar"><slot /></div>',
+    props: ['class'],
   },
   NEmpty: {
     name: 'NEmpty',
@@ -184,7 +211,7 @@ const category: FavoriteCategory = {
   sortOrder: 1,
 }
 
-const mountComponent = (favoriteOverride: FavoritePrompt | null) =>
+const mountComponent = (favoriteOverride: FavoritePrompt | null, serviceOverrides: Record<string, unknown> = {}) =>
   mount(FavoriteDetailPanel, {
     props: {
       favorite: favoriteOverride,
@@ -196,6 +223,7 @@ const mountComponent = (favoriteOverride: FavoritePrompt | null) =>
         services: ref({
           favoriteImageStorageService: {},
           imageStorageService: {},
+          ...serviceOverrides,
         } as any),
       },
     },
@@ -240,16 +268,15 @@ describe('FavoriteDetailPanel', () => {
     expect(wrapper.find('[data-testid="favorite-detail-panel"]').attributes('data-variant')).toBe('image')
     expect(wrapper.find('[data-testid="favorite-detail-media-hero"]').exists()).toBe(true)
 
-    const buttons = wrapper.findAll('.n-button')
-    await buttons[0].trigger('click')
-    await buttons[1].trigger('click')
-    await buttons[2].trigger('click')
-    await buttons[3].trigger('click')
-    await buttons[4].trigger('click')
+    await wrapper.find('[data-testid="favorite-detail-use"]').trigger('click')
+    await wrapper.find('[data-testid="favorite-detail-copy"]').trigger('click')
+    await wrapper.find('[data-testid="favorite-detail-share"]').trigger('click')
+    await wrapper.find('[data-testid="favorite-detail-edit"]').trigger('click')
+    await wrapper.find('[data-testid="favorite-detail-delete"]').trigger('click')
 
     expect(wrapper.emitted('use')).toHaveLength(1)
     expect(wrapper.emitted('copy')).toHaveLength(1)
-    expect(wrapper.emitted('fullscreen')).toHaveLength(1)
+    expect(wrapper.emitted('share')).toHaveLength(1)
     expect(wrapper.emitted('edit')).toHaveLength(1)
     expect(wrapper.emitted('delete')).toHaveLength(1)
   })
@@ -341,13 +368,54 @@ describe('FavoriteDetailPanel', () => {
 
     await flushPromises()
 
-    expect(wrapper.text()).toContain('Variables & Examples')
+    expect(wrapper.text()).not.toContain('Variables & Examples')
+    expect(wrapper.text()).toContain('Variables')
+    expect(wrapper.text()).toContain('Examples')
     expect(wrapper.text()).toContain('1 variables')
-    expect(wrapper.text()).toContain('1 examples')
     expect(wrapper.text()).toContain('style')
     expect(wrapper.text()).toContain('watercolor')
-    expect(wrapper.text()).toContain('example-1')
-    expect(wrapper.text()).toContain('style=ink')
+    expect(wrapper.text()).toContain('1 examples')
+    expect(wrapper.text()).toContain('Example 1')
+    expect(wrapper.text()).toContain('ink')
+  })
+
+  it('emits applyExample use options from a projected example apply button', async () => {
+    const wrapper = mountComponent({
+      ...favorite,
+      functionMode: 'context',
+      optimizationMode: 'user',
+      imageSubMode: undefined,
+      metadata: {
+        reproducibility: {
+          variables: [{ name: 'topic', defaultValue: 'default topic' }],
+          examples: [
+            {
+              id: 'example-alpha',
+              parameters: { topic: 'alpha' },
+            },
+            {
+              id: 'example-beta',
+              parameters: { topic: 'beta' },
+            },
+          ],
+        },
+      },
+    })
+
+    await flushPromises()
+
+    await wrapper.get('[data-testid="favorite-repro-example-apply-1"]').trigger('click')
+
+    expect(wrapper.emitted('use')).toEqual([
+      [
+        expect.objectContaining({ id: favorite.id }),
+        {
+          applyExample: true,
+          exampleId: 'example-beta',
+          exampleIndex: 1,
+        },
+      ],
+    ])
   })
 
   it('resolves and displays example asset images in the detail panel', async () => {
@@ -383,5 +451,114 @@ describe('FavoriteDetailPanel', () => {
       'data:image/png;base64,output-preview',
       'data:image/png;base64,input-preview',
     ])
+  })
+
+  it('renders the embedded prompt asset current version and compact version list', async () => {
+    const wrapper = mountComponent({
+      ...favorite,
+      functionMode: 'basic',
+      optimizationMode: 'system',
+      imageSubMode: undefined,
+      metadata: {
+        promptAsset: {
+          schemaVersion: 'prompt-model/v1',
+          id: 'asset-favorite-1',
+          title: 'Versioned favorite',
+          tags: [],
+          contract: {
+            family: 'basic',
+            subMode: 'system',
+            modeKey: 'basic-system',
+            variables: [],
+          },
+          currentVersionId: 'version-2',
+          versions: [
+            {
+              id: 'version-1',
+              version: 1,
+              content: { kind: 'text', text: 'First prompt draft' },
+              createdAt: 1,
+            },
+            {
+              id: 'version-2',
+              version: 2,
+              content: { kind: 'text', text: 'Current prompt draft' },
+              createdAt: 2,
+            },
+          ],
+          examples: [],
+          createdAt: 1,
+          updatedAt: 2,
+        },
+      },
+    })
+
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="favorite-detail-current-version"]').text()).toContain('v2')
+    expect(wrapper.get('[data-testid="favorite-prompt-asset-version-list"]').text()).toContain('Current prompt draft')
+    expect(wrapper.get('[data-testid="favorite-prompt-asset-version-list"]').text()).toContain('First prompt draft')
+    expect(wrapper.text()).not.toContain('version-1')
+    expect(wrapper.text()).not.toContain('version-2')
+  })
+
+  it('opens a selected historical version in a read-only modal without changing displayed content', async () => {
+    const favoriteManager = {
+      updateFavorite: vi.fn(async () => {}),
+      setFavoritePromptAssetCurrentVersion: vi.fn(async () => {}),
+      deleteFavoritePromptAssetVersion: vi.fn(async () => {}),
+    }
+    const wrapper = mountComponent({
+      ...favorite,
+      functionMode: 'basic',
+      optimizationMode: 'system',
+      imageSubMode: undefined,
+      content: 'Current prompt draft',
+      metadata: {
+        promptAsset: {
+          schemaVersion: 'prompt-model/v1',
+          id: 'asset-favorite-1',
+          title: 'Versioned favorite',
+          tags: [],
+          contract: {
+            family: 'basic',
+            subMode: 'system',
+            modeKey: 'basic-system',
+            variables: [],
+          },
+          currentVersionId: 'version-2',
+          versions: [
+            {
+              id: 'version-1',
+              version: 1,
+              content: { kind: 'text', text: 'First prompt draft' },
+              createdAt: 1,
+            },
+            {
+              id: 'version-2',
+              version: 2,
+              content: { kind: 'text', text: 'Current prompt draft' },
+              createdAt: 2,
+            },
+          ],
+          examples: [],
+          createdAt: 1,
+          updatedAt: 2,
+        },
+      },
+    }, { favoriteManager })
+
+    await flushPromises()
+    expect(wrapper.find('.output-display-core').text()).toContain('Current prompt draft')
+
+    await wrapper.get('[data-testid="favorite-prompt-asset-version-view-1"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.output-display-core').text()).toContain('Current prompt draft')
+    expect(wrapper.find('[data-testid="favorite-detail-viewing-version"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="favorite-prompt-asset-version-modal-content"]').text()).toContain('First prompt draft')
+    expect(favoriteManager.updateFavorite).not.toHaveBeenCalled()
+    expect(favoriteManager.setFavoritePromptAssetCurrentVersion).not.toHaveBeenCalled()
+    expect(favoriteManager.deleteFavoritePromptAssetVersion).not.toHaveBeenCalled()
   })
 })

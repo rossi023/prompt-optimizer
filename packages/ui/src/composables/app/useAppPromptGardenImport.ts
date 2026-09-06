@@ -34,25 +34,24 @@ import {
   persistImageSourceAsAssetId,
 } from '../../utils/image-asset-storage'
 import { buildFavoriteMediaMetadata } from '../../utils/favorite-media'
+import {
+  WORKSPACE_APPLY_TARGET_KEYS,
+  applyWorkspaceTemporaryVariables,
+  buildWorkspaceConversationFromPromptText,
+  clearWorkspaceContentForExternalApply,
+  generateWorkspaceApplyMessageId,
+  getWorkspaceTemporaryVariablesSession,
+  type WorkspaceApplyTargetKey,
+} from '../../utils/workspace-external-apply'
+import {
+  deriveFavoriteCategoryPathFromGardenMeta,
+  ensureFavoriteCategoryPath,
+  loadFavoriteCategoryPathLeafId,
+} from '../../utils/favorite-category-path'
 
-type SupportedSubModeKey =
-  | 'basic-system'
-  | 'basic-user'
-  | 'pro-multi'
-  | 'pro-variable'
-  | 'image-text2image'
-  | 'image-image2image'
-  | 'image-multiimage'
+type SupportedSubModeKey = WorkspaceApplyTargetKey
 
-const SUPPORTED_KEYS: ReadonlyArray<SupportedSubModeKey> = [
-  'basic-system',
-  'basic-user',
-  'pro-multi',
-  'pro-variable',
-  'image-text2image',
-  'image-image2image',
-  'image-multiimage'
-]
+const SUPPORTED_KEYS = WORKSPACE_APPLY_TARGET_KEYS
 
 const isSupportedKey = (value: string | null | undefined): value is SupportedSubModeKey => {
   if (!value) return false
@@ -64,6 +63,31 @@ const getQueryString = (query: LocationQuery, key: string): string | null => {
   if (typeof value === 'string') return value
   if (Array.isArray(value) && typeof value[0] === 'string') return value[0]
   return null
+}
+
+const parseImportCodeSelector = (value: string): { importCode: string; exampleId: string | null } => {
+  const trimmed = value.trim()
+  const separatorIndex = trimmed.lastIndexOf('@')
+  if (separatorIndex <= 0 || separatorIndex === trimmed.length - 1) {
+    return {
+      importCode: trimmed,
+      exampleId: null,
+    }
+  }
+
+  const importCode = trimmed.slice(0, separatorIndex).trim()
+  const exampleId = trimmed.slice(separatorIndex + 1).trim()
+  if (!importCode || !exampleId) {
+    return {
+      importCode: trimmed,
+      exampleId: null,
+    }
+  }
+
+  return {
+    importCode,
+    exampleId,
+  }
 }
 
 const omitKeys = (query: LocationQuery, keys: string[]): LocationQuery => {
@@ -125,7 +149,10 @@ type FetchedPrompt = {
   gardenSnapshot: GardenSnapshot
 }
 
-type FavoriteManagerLike = Pick<IFavoriteManager, 'getFavorites' | 'addFavorite' | 'updateFavorite'>
+type FavoriteManagerLike = Pick<
+  IFavoriteManager,
+  'getFavorites' | 'addFavorite' | 'updateFavorite' | 'getCategories' | 'addCategory'
+>
 
 type GardenSnapshotVariable = {
   name: string
@@ -270,6 +297,10 @@ const deriveFavoriteTags = (fetched: FetchedPrompt): string[] => {
   return extractStringArray(snapshotMeta.tags)
 }
 
+const deriveFavoriteCategoryPath = (fetched: FetchedPrompt): string[] => {
+  return deriveFavoriteCategoryPathFromGardenMeta(fetched.gardenSnapshot.meta)
+}
+
 const deriveFavoriteCategory = (fetched: FetchedPrompt): string | undefined => {
   const snapshotMeta = fetched.gardenSnapshot.meta
   if (!snapshotMeta) return undefined
@@ -316,6 +347,8 @@ const saveImportedPromptToFavorites = async (opts: {
     { allowImageFallback: true },
   )
   const media = buildFavoriteMediaFromSnapshot(snapshot)
+  const categoryPath = deriveFavoriteCategoryPath(fetched)
+  const categoryId = await ensureFavoriteCategoryPath(manager, categoryPath)
   const favorites = await manager.getFavorites()
   const existing = favorites.find((favorite) => isSameGardenSnapshotFavorite(favorite, snapshot))
 
@@ -323,6 +356,7 @@ const saveImportedPromptToFavorites = async (opts: {
     const metadataBase = isPlainObject(existing.metadata) ? existing.metadata : {}
     await manager.updateFavorite(existing.id, {
       content,
+      ...(existing.category ? {} : categoryId ? { category: categoryId } : {}),
       functionMode: modeMapping.functionMode,
       optimizationMode: modeMapping.optimizationMode,
       imageSubMode: modeMapping.imageSubMode,
@@ -339,6 +373,7 @@ const saveImportedPromptToFavorites = async (opts: {
     title: deriveFavoriteTitle(fetched),
     description: deriveFavoriteDescription(fetched),
     content,
+    ...(categoryId ? { category: categoryId } : {}),
     tags: deriveFavoriteTags(fetched),
     functionMode: modeMapping.functionMode,
     optimizationMode: modeMapping.optimizationMode,
@@ -350,97 +385,12 @@ const saveImportedPromptToFavorites = async (opts: {
   })
 }
 
-type ImportedVariable = {
-  name: string
-  defaultValue?: string
-}
-
-type TemporaryVariablesSessionApi = {
-  getTemporaryVariable: (name: string) => string | undefined
-  setTemporaryVariable: (name: string, value: string) => void
-  clearTemporaryVariables: () => void
-}
-
-const getTemporaryVariablesSession = (
-  targetKey: SupportedSubModeKey,
-  api: {
-    proMultiMessageSession: ProMultiMessageSessionApi
-    proVariableSession: ProVariableSessionApi
-    imageText2ImageSession: ImageText2ImageSessionApi
-    imageImage2ImageSession: ImageImage2ImageSessionApi
-    imageMultiImageSession: ImageMultiImageSessionApi
-  },
-): TemporaryVariablesSessionApi | null => {
-  switch (targetKey) {
-    case 'pro-multi':
-      return api.proMultiMessageSession
-    case 'pro-variable':
-      return api.proVariableSession
-    case 'image-text2image':
-      return api.imageText2ImageSession
-    case 'image-image2image':
-      return api.imageImage2ImageSession
-    case 'image-multiimage':
-      return api.imageMultiImageSession
-    default:
-      return null
-  }
-}
-
-const ensureImportedTemporaryVariables = (
-  targetKey: SupportedSubModeKey,
-  api: {
-    proMultiMessageSession: ProMultiMessageSessionApi
-    proVariableSession: ProVariableSessionApi
-    imageText2ImageSession: ImageText2ImageSessionApi
-    imageImage2ImageSession: ImageImage2ImageSessionApi
-    imageMultiImageSession: ImageMultiImageSessionApi
-  },
-  opts: {
-    variables: ImportedVariable[]
-  },
-) => {
-  const session = getTemporaryVariablesSession(targetKey, api)
-
-  if (!session) return
-
-  const variableEntries: Array<{ name: string; value: string }> = opts.variables
-    .map((v) => ({
-      name: String(v?.name || '').trim(),
-      value: v?.defaultValue !== undefined ? String(v.defaultValue) : '',
-    }))
-    .filter((v) => isValidVariableName(v.name))
-
-  // Reset the temporary variables panel to match the imported variable list.
-  // Preserve existing values for the same keys to avoid clobbering user input.
-  const preservedValues = new Map<string, string>()
-  for (const { name } of variableEntries) {
-    const existing = session.getTemporaryVariable(name)
-    if (existing !== undefined) {
-      preservedValues.set(name, existing)
-    }
-  }
-
-  session.clearTemporaryVariables()
-
-  for (const { name, value } of variableEntries) {
-    session.setTemporaryVariable(name, preservedValues.get(name) ?? value)
-  }
-}
-
 const isPlainObject = (value: unknown): value is Record<string, unknown> => {
   return !!value && typeof value === 'object' && !Array.isArray(value)
 }
 
-let importedMessageIdSeed = 0
 const generateImportedMessageId = (): string => {
-  // Prefer stable UUIDs when available (browser + modern Node).
-  const maybeCrypto = globalThis.crypto as unknown as { randomUUID?: () => string } | undefined
-  if (maybeCrypto && typeof maybeCrypto.randomUUID === 'function') {
-    return maybeCrypto.randomUUID()
-  }
-  importedMessageIdSeed += 1
-  return `imported-${Date.now()}-${importedMessageIdSeed}`
+  return generateWorkspaceApplyMessageId('imported')
 }
 
 const normalizeImportedConversationMessages = (input: unknown): ConversationMessage[] => {
@@ -470,13 +420,6 @@ const normalizeImportedConversationMessages = (input: unknown): ConversationMess
   }
 
   return out
-}
-
-const buildConversationFromPromptText = (content: string): ConversationMessage[] => {
-  const text = String(content || '')
-  if (!text) return []
-  const id = generateImportedMessageId()
-  return [{ id, role: 'system', content: text, originalContent: text }]
 }
 
 const normalizeSnapshotUrl = (opts: {
@@ -560,7 +503,7 @@ const fetchPromptFromGarden = async (opts: {
 
   const url = (() => {
     if (!normalizedGardenBaseUrl) return null
-    return `${normalizedGardenBaseUrl}/api/prompt-source/${encodeURIComponent(importCode)}`
+    return `${normalizedGardenBaseUrl}/api/public/prompt-source/${encodeURIComponent(importCode)}`
   })()
 
   if (!url) {
@@ -1072,49 +1015,6 @@ const pickImportedExample = (
   return examples[0] || null
 }
 
-const clearSessionContentForExternalImport = (targetKey: SupportedSubModeKey, api: {
-  basicSystemSession: BasicSystemSessionApi
-  basicUserSession: BasicUserSessionApi
-  proVariableSession: ProVariableSessionApi
-  imageText2ImageSession: ImageText2ImageSessionApi
-  imageImage2ImageSession: ImageImage2ImageSessionApi
-  imageMultiImageSession: ImageMultiImageSessionApi
-  optimizerCurrentVersions: Ref<PromptRecordChain['versions']>
-}) => {
-  if (targetKey === 'basic-system') {
-    api.basicSystemSession.clearContent({ persist: false })
-    api.optimizerCurrentVersions.value = []
-    return
-  }
-
-  if (targetKey === 'basic-user') {
-    api.basicUserSession.clearContent({ persist: false })
-    api.optimizerCurrentVersions.value = []
-    return
-  }
-
-  if (targetKey === 'pro-variable') {
-    api.proVariableSession.clearContent({ persist: false })
-    return
-  }
-
-  if (targetKey === 'pro-multi') {
-    return
-  }
-
-  if (targetKey === 'image-text2image') {
-    api.imageText2ImageSession.clearContent({ persist: false })
-    return
-  }
-
-  if (targetKey === 'image-multiimage') {
-    api.imageMultiImageSession.clearContent({ persist: false })
-    return
-  }
-
-  api.imageImage2ImageSession.clearContent({ persist: false })
-}
-
 type SaveFavoriteDialogPayload = {
   content: string
   originalContent?: string
@@ -1194,14 +1094,25 @@ export function useAppPromptGardenImport(options: AppPromptGardenImportOptions) 
       const currentRoute = router.currentRoute.value
       const query = currentRoute.query
 
-      const importCode = getQueryString(query, 'importCode')
+      const rawImportCode = getQueryString(query, 'importCode')
+      const parsedImportCode = rawImportCode ? parseImportCodeSelector(rawImportCode) : null
+      const importCode = parsedImportCode?.importCode
       if (!importCode) return
 
-      const exampleId = getQueryString(query, 'exampleId')
+      const explicitExampleId = getQueryString(query, 'exampleId')?.trim() || null
+      const exampleId = explicitExampleId ?? parsedImportCode.exampleId
       const saveToFavoritesMode = parseSaveToFavoritesMode(getQueryString(query, 'saveToFavorites'))
 
       inFlight.value = true
       isLoadingExternalData.value = true
+      let importingToast = toast.info(String(i18n.global.t('common.promptGarden.importingStatus')), {
+        duration: 0,
+        closable: false,
+      })
+      const closeImportingToast = () => {
+        toast.remove(importingToast)
+        importingToast = undefined
+      }
       try {
         const fetched = await fetchPromptFromGarden({
           gardenBaseUrl,
@@ -1211,6 +1122,82 @@ export function useAppPromptGardenImport(options: AppPromptGardenImportOptions) 
         const importedExample = pickImportedExample(fetched.examples, exampleId)
 
         const targetKey = resolveTargetKey(query, currentRoute.path, fetched.optimizerTargetKey)
+
+        if (saveToFavoritesMode !== 'none') {
+          if (saveToFavoritesMode === 'auto') {
+            const favoriteManager = getFavoriteManager?.() || null
+            const imageStorageService =
+              getFavoriteImageStorageService?.() || getImageStorageService?.() || null
+            if (favoriteManager) {
+              try {
+                await saveImportedPromptToFavorites({
+                  manager: favoriteManager,
+                  imageStorageService,
+                  fetched,
+                  targetKey,
+                })
+              } catch (error) {
+                toast.warning(String(i18n.global.t('toast.warning.promptGardenFavoriteSaveFailed')))
+              }
+            } else {
+              console.warn('[PromptGardenImport] Favorite manager unavailable, skip auto-save')
+            }
+          } else {
+            const content = buildFavoriteContentFromFetchedPrompt(fetched)
+            if (!content) {
+              console.warn('[PromptGardenImport] Skip favorite dialog: imported content is empty')
+            } else if (!openSaveFavoriteDialog) {
+              console.warn('[PromptGardenImport] Favorite dialog callback unavailable, skip confirm flow')
+            } else {
+              const modeMapping = toFavoriteModeMapping(targetKey)
+              const imageStorageService =
+                getFavoriteImageStorageService?.() || getImageStorageService?.() || null
+
+              let snapshot = fetched.gardenSnapshot
+              try {
+                snapshot = await buildStorableGardenSnapshot(snapshot, imageStorageService, {
+                  allowImageFallback: true,
+                })
+              } catch (error) {
+                console.info('[PromptGardenImport] Failed to persist snapshot assets for favorite dialog:', error)
+              }
+
+              const media = buildFavoriteMediaFromSnapshot(snapshot)
+              const metadata: Record<string, unknown> = {
+                gardenSnapshot: snapshot,
+                ...(media ? { media } : {}),
+              }
+              const favoriteManager = getFavoriteManager?.() || null
+              const categoryPath = deriveFavoriteCategoryPath(fetched)
+              const resolvedCategoryFromPath = favoriteManager
+                ? await loadFavoriteCategoryPathLeafId(favoriteManager, categoryPath)
+                : undefined
+
+              openSaveFavoriteDialog({
+                content,
+                originalContent: content,
+                prefill: {
+                  title: deriveFavoriteTitle(fetched),
+                  description: deriveFavoriteDescription(fetched),
+                  category: resolvedCategoryFromPath || deriveFavoriteCategory(fetched),
+                  tags: deriveFavoriteTags(fetched),
+                  functionMode: modeMapping.functionMode,
+                  optimizationMode: modeMapping.optimizationMode,
+                  imageSubMode: modeMapping.imageSubMode,
+                  metadata,
+                },
+              })
+            }
+          }
+
+          const cleanedQuery = omitKeys(query, ['importCode', 'subModeKey', 'exampleId', 'saveToFavorites'])
+          await router.replace({ path: router.currentRoute.value.path, query: cleanedQuery })
+          await nextTick()
+
+          closeImportingToast()
+          toast.success(String(i18n.global.t('toast.success.promptGardenImportSuccess')))
+          return
+        }
 
         // If caller opened the wrong workspace, navigate first.
         const targetPath = keyToPath(targetKey)
@@ -1224,13 +1211,22 @@ export function useAppPromptGardenImport(options: AppPromptGardenImportOptions) 
           const messages =
             fetched.promptFormat === 'messages'
               ? (fetched.promptMessages as ConversationMessage[])
-              : buildConversationFromPromptText(fetched.promptText ?? '')
+              : buildWorkspaceConversationFromPromptText(fetched.promptText ?? '', 'imported')
 
           if (!messages.length) {
             throw new Error('Empty conversation content')
           }
 
-          proMultiMessageSession.clearContent({ persist: false })
+          clearWorkspaceContentForExternalApply(targetKey, {
+            basicSystemSession,
+            basicUserSession,
+            proMultiMessageSession,
+            proVariableSession,
+            imageText2ImageSession,
+            imageImage2ImageSession,
+            imageMultiImageSession,
+            optimizerCurrentVersions,
+          })
           proMultiMessageSession.updateConversationMessages(messages)
 
           // Auto-select latest system/user message for convenience.
@@ -1250,11 +1246,12 @@ export function useAppPromptGardenImport(options: AppPromptGardenImportOptions) 
             throw new Error('Empty prompt content')
           }
 
-          clearSessionContentForExternalImport(
+          clearWorkspaceContentForExternalApply(
             targetKey,
             {
               basicSystemSession,
               basicUserSession,
+              proMultiMessageSession,
               proVariableSession,
               imageText2ImageSession,
               imageImage2ImageSession,
@@ -1279,7 +1276,7 @@ export function useAppPromptGardenImport(options: AppPromptGardenImportOptions) 
         }
 
         // Import variables into submode-scoped temporary variables.
-        ensureImportedTemporaryVariables(
+        applyWorkspaceTemporaryVariables(
           targetKey,
           {
             proMultiMessageSession,
@@ -1290,13 +1287,14 @@ export function useAppPromptGardenImport(options: AppPromptGardenImportOptions) 
           },
           {
             variables: fetched.variables,
+            preserveExistingValues: true,
           }
         )
 
         // If the imported prompt provides a full example, apply the example's parameter values
         // (and input image for image2image) so the user can reproduce the result directly.
         if (importedExample) {
-          const session = getTemporaryVariablesSession(targetKey, {
+          const session = getWorkspaceTemporaryVariablesSession(targetKey, {
             proMultiMessageSession,
             proVariableSession,
             imageText2ImageSession,
@@ -1370,67 +1368,6 @@ export function useAppPromptGardenImport(options: AppPromptGardenImportOptions) 
           }
         }
 
-        if (saveToFavoritesMode === 'auto') {
-          const favoriteManager = getFavoriteManager?.() || null
-          const imageStorageService =
-            getFavoriteImageStorageService?.() || getImageStorageService?.() || null
-          if (favoriteManager) {
-            try {
-              await saveImportedPromptToFavorites({
-                manager: favoriteManager,
-                imageStorageService,
-                fetched,
-                targetKey,
-              })
-            } catch (error) {
-              toast.warning(String(i18n.global.t('toast.warning.promptGardenFavoriteSaveFailed')))
-            }
-          } else {
-            console.warn('[PromptGardenImport] Favorite manager unavailable, skip auto-save')
-          }
-        } else if (saveToFavoritesMode === 'confirm') {
-          const content = buildFavoriteContentFromFetchedPrompt(fetched)
-          if (!content) {
-            console.warn('[PromptGardenImport] Skip favorite dialog: imported content is empty')
-          } else if (!openSaveFavoriteDialog) {
-            console.warn('[PromptGardenImport] Favorite dialog callback unavailable, skip confirm flow')
-          } else {
-            const modeMapping = toFavoriteModeMapping(targetKey)
-            const imageStorageService =
-              getFavoriteImageStorageService?.() || getImageStorageService?.() || null
-
-            let snapshot = fetched.gardenSnapshot
-            try {
-              snapshot = await buildStorableGardenSnapshot(snapshot, imageStorageService, {
-                allowImageFallback: true,
-              })
-            } catch (error) {
-              console.info('[PromptGardenImport] Failed to persist snapshot assets for favorite dialog:', error)
-            }
-
-            const media = buildFavoriteMediaFromSnapshot(snapshot)
-            const metadata: Record<string, unknown> = {
-              gardenSnapshot: snapshot,
-              ...(media ? { media } : {}),
-            }
-
-            openSaveFavoriteDialog({
-              content,
-              originalContent: content,
-              prefill: {
-                title: deriveFavoriteTitle(fetched),
-                description: deriveFavoriteDescription(fetched),
-                category: deriveFavoriteCategory(fetched),
-                tags: deriveFavoriteTags(fetched),
-                functionMode: modeMapping.functionMode,
-                optimizationMode: modeMapping.optimizationMode,
-                imageSubMode: modeMapping.imageSubMode,
-                metadata,
-              },
-            })
-          }
-        }
-
         // Best-effort persist.
         try {
           if (targetKey === 'basic-system') await basicSystemSession.saveSession()
@@ -1449,11 +1386,14 @@ export function useAppPromptGardenImport(options: AppPromptGardenImportOptions) 
         await router.replace({ path: router.currentRoute.value.path, query: cleanedQuery })
         await nextTick()
 
+        closeImportingToast()
         toast.success(String(i18n.global.t('toast.success.promptGardenImportSuccess')))
       } catch (error) {
         console.error('[PromptGardenImport] Failed:', error)
+        closeImportingToast()
         toast.error(String(i18n.global.t('toast.error.promptGardenImportFailed')))
       } finally {
+        closeImportingToast()
         isLoadingExternalData.value = false
         inFlight.value = false
       }

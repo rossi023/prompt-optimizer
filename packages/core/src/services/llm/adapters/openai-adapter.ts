@@ -1,6 +1,7 @@
 import OpenAI from 'openai'
 import { AbstractTextProviderAdapter } from './abstract-adapter'
 import { APIError } from '../errors'
+import { normalizeCustomRequestHeaders } from '../../../utils/custom-request-headers'
 import type {
   TextProvider,
   TextModel,
@@ -26,23 +27,42 @@ interface ModelOverride {
  */
 const OPENAI_STATIC_MODELS: ModelOverride[] = [
   {
-    id: 'gpt-5-mini',
-    name: 'GPT-5 Mini',
-    description: 'Fast, capable, and efficient small model with significant improvements in instruction-following and coding',
+    id: 'gpt-5.6-terra',
+    name: 'GPT-5.6 Terra',
+    description: 'Balanced GPT-5.6 model for general-purpose work with strong reasoning and low latency',
     capabilities: {
       supportsTools: true,
-      supportsReasoning: false,
-      maxContextLength: 1047576
+      supportsReasoning: true,
+      maxContextLength: 1050000
+    },
+    defaultParameterValues: {
+      reasoning_effort: 'none'
     }
   },
   {
-    id: 'gpt-5.1',
-    name: 'GPT-5.1',
-    description: 'Latest GPT-5.1 flagship model with enhanced capabilities',
+    id: 'gpt-5.6-sol',
+    name: 'GPT-5.6 Sol',
+    description: 'Most capable GPT-5.6 model for complex coding and agentic tasks',
     capabilities: {
       supportsTools: true,
-      supportsReasoning: false,
-      maxContextLength: 1047576
+      supportsReasoning: true,
+      maxContextLength: 1050000
+    },
+    defaultParameterValues: {
+      reasoning_effort: 'none'
+    }
+  },
+  {
+    id: 'gpt-5.6-luna',
+    name: 'GPT-5.6 Luna',
+    description: 'Fast GPT-5.6 model for cost-sensitive, high-throughput workloads',
+    capabilities: {
+      supportsTools: true,
+      supportsReasoning: true,
+      maxContextLength: 1050000
+    },
+    defaultParameterValues: {
+      reasoning_effort: 'none'
     }
   }
 ]
@@ -176,6 +196,16 @@ export class OpenAIAdapter extends AbstractTextProviderAdapter {
    */
   protected getParameterDefinitions(_modelId: string): readonly ParameterDefinition[] {
     return [
+      {
+        name: 'reasoning_effort',
+        labelKey: 'params.reasoning_effort.label',
+        descriptionKey: 'params.reasoning_effort.description',
+        description: 'Reasoning effort for GPT-5.6 models.',
+        type: 'string',
+        defaultValue: 'none',
+        default: 'none',
+        allowedValues: ['none', 'low', 'medium', 'high', 'xhigh', 'max']
+      },
       {
         name: 'temperature',
         labelKey: 'params.temperature.label',
@@ -353,6 +383,49 @@ export class OpenAIAdapter extends AbstractTextProviderAdapter {
     })
   }
 
+  private buildImageDataUrl(image: ImageUnderstandingRequest['images'][number]): string {
+    const imageData = image.b64.trim()
+    if (/^data:/i.test(imageData)) {
+      return imageData
+    }
+
+    return `data:${image.mimeType || 'image/png'};base64,${imageData}`
+  }
+
+  private buildResponsesImageUnderstandingInput(
+    request: ImageUnderstandingRequest
+  ): any[] {
+    const input: any[] = []
+
+    if (request.systemPrompt?.trim()) {
+      input.push({
+        role: 'system',
+        content: [
+          {
+            type: 'input_text',
+            text: request.systemPrompt
+          }
+        ]
+      })
+    }
+
+    input.push({
+      role: 'user',
+      content: [
+        {
+          type: 'input_text',
+          text: request.userPrompt
+        },
+        ...request.images.map((image) => ({
+          type: 'input_image',
+          image_url: this.buildImageDataUrl(image)
+        }))
+      ]
+    })
+
+    return input
+  }
+
   private normalizeResponsesParams(paramOverrides: Record<string, unknown> | undefined): Record<string, unknown> {
     const {
       timeout: _timeout,
@@ -367,6 +440,8 @@ export class OpenAIAdapter extends AbstractTextProviderAdapter {
       n: _n,
       seed: _seed,
       logprobs,
+      reasoning_effort,
+      responseMimeType: _responseMimeType,
       ...restParams
     } = (paramOverrides || {}) as Record<string, unknown>
 
@@ -382,18 +457,28 @@ export class OpenAIAdapter extends AbstractTextProviderAdapter {
       normalizedParams.include = ['message.output_text.logprobs']
     }
 
+    if (reasoning_effort !== undefined) {
+      const existingReasoning = normalizedParams.reasoning
+      normalizedParams.reasoning = {
+        ...(existingReasoning && typeof existingReasoning === 'object' ? existingReasoning : {}),
+        effort: reasoning_effort
+      }
+    }
+
     return normalizedParams
   }
 
   private async sendResponsesMessage(
     openai: OpenAI,
     messages: Message[],
-    config: TextModelConfig
+    config: TextModelConfig,
+    inputOverride?: any[],
+    paramOverrides?: Record<string, unknown>
   ): Promise<LLMResponse> {
     const responsesConfig: any = {
       model: config.modelMeta.id,
-      input: this.buildResponsesInput(messages),
-      ...this.normalizeResponsesParams(config.paramOverrides)
+      input: inputOverride ?? this.buildResponsesInput(messages),
+      ...this.normalizeResponsesParams(paramOverrides ?? config.paramOverrides)
     }
 
     const response: any = await openai.responses.create(responsesConfig)
@@ -405,13 +490,15 @@ export class OpenAIAdapter extends AbstractTextProviderAdapter {
     messages: Message[],
     config: TextModelConfig,
     callbacks: StreamHandlers,
-    tools?: ToolDefinition[]
+    tools?: ToolDefinition[],
+    inputOverride?: any[],
+    paramOverrides?: Record<string, unknown>
   ): Promise<void> {
     const responsesConfig: any = {
       model: config.modelMeta.id,
-      input: this.buildResponsesInput(messages),
+      input: inputOverride ?? this.buildResponsesInput(messages),
       stream: true,
-      ...this.normalizeResponsesParams(config.paramOverrides)
+      ...this.normalizeResponsesParams(paramOverrides ?? config.paramOverrides)
     }
 
     if (tools?.length) {
@@ -731,6 +818,18 @@ export class OpenAIAdapter extends AbstractTextProviderAdapter {
     return sanitized
   }
 
+  private getCustomDefaultHeaders(config: TextModelConfig): Record<string, string> | undefined {
+    const isCustomOpenAICompatible =
+      this.getProvider().id === 'openai-compatible' ||
+      config.providerMeta?.id === 'openai-compatible'
+
+    if (!isCustomOpenAICompatible) {
+      return undefined
+    }
+
+    return normalizeCustomRequestHeaders(config.connectionConfig?.customHeaders as any)
+  }
+
   // ===== SDK实例创建（从service.ts迁移） =====
 
   /**
@@ -765,6 +864,11 @@ export class OpenAIAdapter extends AbstractTextProviderAdapter {
       baseURL: processedBaseURL,
       timeout: timeout,
       maxRetries: isStream ? 2 : 3
+    }
+
+    const customDefaultHeaders = this.getCustomDefaultHeaders(config)
+    if (customDefaultHeaders) {
+      sdkConfig.defaultHeaders = customDefaultHeaders
     }
 
     const runtimeFetch =
@@ -928,6 +1032,16 @@ export class OpenAIAdapter extends AbstractTextProviderAdapter {
       ...(request.paramOverrides || {})
     } as Record<string, unknown>
 
+    if (this.getRequestStyle(config) === 'responses') {
+      return await this.sendResponsesMessage(
+        openai,
+        [],
+        config,
+        this.buildResponsesImageUnderstandingInput(request),
+        mergedParams
+      )
+    }
+
     const {
       timeout,
       model: _paramModel,
@@ -945,7 +1059,7 @@ export class OpenAIAdapter extends AbstractTextProviderAdapter {
       ...request.images.map((image) => ({
         type: 'image_url',
         image_url: {
-          url: `data:${image.mimeType || 'image/png'};base64,${image.b64}`
+          url: this.buildImageDataUrl(image)
         }
       }))
     ]
@@ -969,13 +1083,8 @@ export class OpenAIAdapter extends AbstractTextProviderAdapter {
       ...restParams
     }
 
-    try {
-      const response: any = await openai.chat.completions.create(completionConfig)
-      return await this.parseCompletionResponse(response, config.modelMeta.id)
-    } catch (error) {
-      console.error('[OpenAIAdapter] Image understanding request failed:', error)
-      throw error
-    }
+    const response: any = await openai.chat.completions.create(completionConfig)
+    return await this.parseCompletionResponse(response, config.modelMeta.id)
   }
 
   protected async doSendImageUnderstandingStream(
@@ -989,6 +1098,19 @@ export class OpenAIAdapter extends AbstractTextProviderAdapter {
         ...(config.paramOverrides || {}),
         ...(request.paramOverrides || {})
       } as Record<string, unknown>
+
+      if (this.getRequestStyle(config) === 'responses') {
+        await this.sendResponsesMessageStream(
+          openai,
+          [],
+          config,
+          callbacks,
+          undefined,
+          this.buildResponsesImageUnderstandingInput(request),
+          mergedParams
+        )
+        return
+      }
 
       const {
         timeout,
@@ -1007,7 +1129,7 @@ export class OpenAIAdapter extends AbstractTextProviderAdapter {
         ...request.images.map((image) => ({
           type: 'image_url',
           image_url: {
-            url: `data:${image.mimeType || 'image/png'};base64,${image.b64}`
+            url: this.buildImageDataUrl(image)
           }
         }))
       ]
@@ -1060,7 +1182,6 @@ export class OpenAIAdapter extends AbstractTextProviderAdapter {
         }
       })
     } catch (error) {
-      console.error('[OpenAIAdapter] Image understanding stream failed:', error)
       callbacks.onError(error instanceof Error ? error : new Error(String(error)))
       throw error
     }

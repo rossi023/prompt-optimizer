@@ -40,7 +40,7 @@ export function generateTextModelConfig(envConfig: ValidatedCustomModelEnvConfig
   // OpenAI 兼容 Provider（所有自定义模型都使用 OpenAI 兼容 API）
   const customProvider: TextProvider = {
     id: 'openai-compatible',
-    name: 'Custom API (OpenAI Compatible)',
+    name: 'OpenAI Compatible (Custom)',
     description: 'Custom endpoint using an OpenAI-compatible API',
     requiresApiKey: false,
     defaultBaseURL: 'http://localhost:11434/v1',
@@ -86,12 +86,15 @@ export function generateTextModelConfig(envConfig: ValidatedCustomModelEnvConfig
     id: `custom_${envConfig.suffix}`,
     name: modelName,
     enabled: true,
+    providerId: customProvider.id,
+    modelId: customModel.id,
     providerMeta: customProvider,
     modelMeta: customModel,
     connectionConfig: {
       apiKey: envConfig.apiKey,
       baseURL: envConfig.baseURL,
-      requestStyle: 'chat_completions'
+      requestStyle: 'chat_completions',
+      ...(envConfig.customHeaders ? { customHeaders: { ...envConfig.customHeaders } } : {})
     },
     paramOverrides: envConfig.params ? { ...envConfig.params } : {}
   };

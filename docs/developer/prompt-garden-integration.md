@@ -6,7 +6,7 @@
 
 - URL 只携带少量路由参数，由 Prompt Optimizer 自己去 Garden 拉完整内容
 - Prompt Optimizer 固定从 `VITE_PROMPT_GARDEN_BASE_URL` 拉取内容，不接受 URL 参数覆盖
-- Garden API 返回统一的 v1 schema，由 Prompt Optimizer 按子模式写入不同 session store
+- Garden API 返回统一的 v1 schema；普通导入会由 Prompt Optimizer 按子模式写入不同 session store
 - Garden 的扩展元数据和素材快照可以跟随收藏一起保存，便于后续预览和复用
 
 ## 1. Prompt Optimizer 侧：导入触发与 URL 参数
@@ -21,19 +21,23 @@ Prompt Optimizer 在应用初始 session 恢复完成后检查当前路由 query
 
 - `importCode`（必填）
   - 外部提示词的唯一标识，例如 `NB-001`
+  - 可在导入码后追加示例选择后缀，例如 `NB-001@ex-2`
+  - 追加后缀时，Prompt Optimizer 仍请求 `GET /api/public/prompt-source/NB-001`，并把 `ex-2` 当作本次导入的示例选择；旧路径 `/api/prompt-source/NB-001` 由 Garden 侧做 `307` 兼容跳转
 - `subModeKey`（可选）
   - 显式指定导入目标工作区
   - 若未提供，则优先使用 Garden 返回的 `optimizerTarget.subModeKey`
   - 若 Garden 返回值无效，则退回当前路由；当前路由也无效时默认落到 `basic-system`
 - `exampleId`（可选）
   - 指定使用哪一个示例
+  - 若 `importCode` 同时带 `@exampleId` 后缀，显式 URL 参数 `exampleId` 优先
   - 若未提供，则默认使用 `assets.examples[0]`
   - 仅用于示例参数和 image2image 输入图回填，不改变 prompt 主体
 - `saveToFavorites`（可选）
-  - 控制导入后是否联动收藏
+  - 控制本次导入是否进入收藏流程
   - `1` / `true` / `auto` -> 自动保存到收藏
   - `confirm` / `dialog` / `manual` -> 打开“保存收藏”对话框，并带预填数据
-  - 其它值或省略 -> 不触发收藏保存
+  - 只要启用 `saveToFavorites`，本次导入只处理收藏，不写入或覆盖当前工作区
+  - 其它值或省略 -> 作为“使用”导入，写入目标工作区，不触发收藏保存
 
 ### 1.2 `subModeKey` 支持值
 
@@ -52,7 +56,10 @@ Prompt Optimizer 在应用初始 session 恢复完成后检查当前路由 query
 - 导入到 `pro-multi`，并显式指定示例：
   - `https://prompt.example.com/#/pro/multi?importCode=NB-001&exampleId=ex-2`
 
-- 导入到 `image-image2image`，并在导入后弹出保存收藏对话框：
+- 导入到 `pro-multi`，并通过导入码后缀指定示例：
+  - `https://prompt.example.com/#/pro/multi?importCode=NB-001@ex-2`
+
+- 从 `image-image2image` 类型的 Garden 提示词导入为收藏，并弹出保存收藏对话框：
   - `https://prompt.example.com/#/image/image2image?importCode=NB-001&saveToFavorites=confirm`
 
 - 若希望 query 明确覆盖目标工作区：
@@ -61,13 +68,14 @@ Prompt Optimizer 在应用初始 session 恢复完成后检查当前路由 query
 说明：
 
 - 推荐 Garden 直接打开目标工作区路由，而不是总是打开根路由再依赖 `subModeKey`
-- `subModeKey` 只用于决定写入哪个工作区，不决定 API 返回结构
+- 不带 `saveToFavorites` 时，`subModeKey` 用于决定写入哪个工作区
+- 带 `saveToFavorites` 时，`subModeKey` 只用于收藏的模式预填充，不会触发工作区写入
 
 ## 2. Prompt Garden 侧：必须提供的 API
 
 Prompt Optimizer 会调用：
 
-`GET {gardenBaseUrl}/api/prompt-source/{encodeURIComponent(importCode)}`
+`GET {gardenBaseUrl}/api/public/prompt-source/{encodeURIComponent(importCode)}`
 
 其中：
 
@@ -346,10 +354,24 @@ Prompt Optimizer 会调用：
   - 收藏描述预填充
 - `tags`
   - 收藏标签预填充
+- `categoryPath`
+  - 收藏分类树导入的首选字段
+  - Prompt Optimizer 会按路径逐级复用或创建分类节点，并将收藏挂到最后一个叶子节点
+- `categoryPathKey`
+  - `categoryPath` 的兼容回退
+  - 用法与 `categoryPath` 一致
 - `categoryKey`
-  - 收藏分类预填充，优先级高于 `category`
+  - 旧版单分类兼容字段
+  - 当 `categoryPath/categoryPathKey` 都缺失时，退化为单节点分类
 - `category`
-  - 收藏分类预填充，作为 `categoryKey` 的回退
+  - 旧版单分类兼容字段，作为 `categoryKey` 的回退
+
+Prompt Optimizer 当前的分类提取优先级为：
+
+1. `meta.categoryPath`
+2. `meta.categoryPathKey`
+3. 旧字段组合 `[meta.category, meta.subcategory]`
+4. `meta.categoryKey`
 
 如果 `meta.title` 缺失，Prompt Optimizer 会退回到 prompt 内容首行生成收藏标题。
 
@@ -384,7 +406,7 @@ Prompt Optimizer 会调用：
 - 用户会看到一个 warning toast
 - 常见原因是 Garden 静态素材的 CORS 配置不正确
 
-因此，若要支持 image2image 的“可复现实例导入”，Garden 不仅要开放 `/api/prompt-source/*`，也要开放示例图片地址。
+因此，若要支持 image2image 的“可复现实例导入”，Garden 不仅要开放 `/api/public/prompt-source/*`，也要开放示例图片地址。旧路径 `/api/prompt-source/*` 只需要保留 `307` 兼容跳转即可。
 
 ## 8. 收藏联动（`saveToFavorites`）
 
@@ -393,8 +415,10 @@ Prompt Optimizer 会调用：
 当 `saveToFavorites=1|true|auto` 时：
 
 - Prompt Optimizer 会尝试自动保存到收藏
-- 收藏内容来自导入后的 prompt
+- 收藏内容来自 Garden 返回的 prompt
 - `meta` 和 `assets` 会作为 `gardenSnapshot` 一起写入收藏 metadata
+- 如果 `meta.categoryPath/categoryPathKey` 存在，会自动创建或复用分类树，并保存到叶子分类
+- 不会写入或覆盖当前工作区
 
 ### 8.2 确认保存
 
@@ -402,6 +426,8 @@ Prompt Optimizer 会调用：
 
 - Prompt Optimizer 会打开“保存收藏”对话框
 - 自动带入标题、描述、标签、分类、模式信息和 `gardenSnapshot`
+- 若分类树节点尚不存在，不会在弹窗打开时提前创建；只有用户真正点击保存时才会补建缺失节点
+- 不会写入或覆盖当前工作区
 
 ### 8.3 去重与更新规则
 
@@ -417,7 +443,7 @@ Garden 联动保存收藏时，不按收藏内容去重，而按下面的组合�
 
 ## 9. 工作区写入时会被重置的状态
 
-导入成功后，Prompt Optimizer 不只是更新 prompt，还会清理与旧工作区状态绑定的内容。
+当 URL 不带 `saveToFavorites` 时，导入成功后 Prompt Optimizer 不只是更新 prompt，还会清理与旧工作区状态绑定的内容。
 
 例如：
 
@@ -485,12 +511,12 @@ Prompt Optimizer 仅支持 Mustache 风格变量占位符：
 
 至少需要覆盖两类资源：
 
-- `/api/prompt-source/*`
+- `/api/public/prompt-source/*`
 - `assets.cover.url`、`assets.showcases[*].url/images[*]`、`assets.examples[*].images[*]`、`assets.examples[*].inputImages[*]` 指向的静态资源地址
 
 建议：
 
-- `/api/prompt-source/*` 返回：
+- `/api/public/prompt-source/*` 返回：
   - `Access-Control-Allow-Origin: https://prompt.example.com`，或你的实际部署域名
 - 静态素材地址也返回相同的 `Access-Control-Allow-Origin`
 - 开发环境可临时使用 `*` 联调
@@ -502,12 +528,19 @@ Prompt Optimizer 仅支持 Mustache 风格变量占位符：
 Prompt Optimizer 侧：
 
 - `VITE_ENABLE_PROMPT_GARDEN_IMPORT=1` 或 `true`
-  - 默认禁用
-  - 启用后才会注册 Prompt Garden 导入逻辑
+  - 产品内建默认值为 `1`
+  - 启用后会注册 Prompt Garden 导入逻辑
   - 同时也会启用 Garden 收藏快照预览插件
-- `VITE_PROMPT_GARDEN_BASE_URL=http://localhost:3000`
+- `VITE_PROMPT_GARDEN_BASE_URL=https://garden.always200.com`
   - Prompt Garden 的固定 base URL
   - 不接受 URL 参数覆盖
+
+说明：
+
+- Web、浏览器扩展和桌面端打包时都会带上上述默认值
+- 运行时配置仍可覆盖默认值
+  - Docker / Web `window.runtime_config` 推荐使用无前缀键：`ENABLE_PROMPT_GARDEN_IMPORT`、`PROMPT_GARDEN_BASE_URL`
+  - 也兼容带前缀键：`VITE_ENABLE_PROMPT_GARDEN_IMPORT`、`VITE_PROMPT_GARDEN_BASE_URL`
 
 ## 14. 可选集成（Integrations）机制
 

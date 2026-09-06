@@ -133,20 +133,26 @@ export class VariableValueGenerationService implements IVariableValueGenerationS
    * 构建模板上下文
    */
   private buildTemplateContext(request: VariableValueGenerationRequest): TemplateContext {
-    // 构建变量列表文本（用于模板注入）
-    const variablesText = request.variables
+    const formatVariables = (variables: VariableToGenerate[]): string => variables
       .map((v, idx) => {
         const parts = [`${idx + 1}. ${v.name}`];
+        if (v.description?.trim()) parts.push(`(description: ${v.description.trim()})`);
+        if (v.defaultValue?.trim()) parts.push(`(default value: ${v.defaultValue.trim()})`);
         if (v.currentValue) parts.push(`(current value: ${v.currentValue})`);
         if (v.source) parts.push(`[${v.source}]`);
         return parts.join(' ');
       })
       .join('\n');
 
+    const contextVariables = request.contextVariables?.filter(v => v.currentValue?.trim()) ?? [];
+
     return {
       promptContent: request.promptContent,
-      variablesText,
+      variablesText: formatVariables(request.variables),
       variableCount: request.variables.length,
+      hasContextVariables: contextVariables.length > 0,
+      contextVariablesText: contextVariables.length > 0 ? formatVariables(contextVariables) : 'None',
+      contextVariableCount: contextVariables.length,
     };
   }
 

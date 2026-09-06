@@ -1,11 +1,50 @@
 <template>
-  <NTooltip
-    trigger="hover"
-    placement="top"
-    :theme-overrides="tooltipThemeOverrides"
+  <div
+    class="workspace-utility-button-column"
+    :style="triggerStyle"
   >
-    <template #trigger>
-      <span class="workspace-utility-menu-trigger" :style="triggerStyle">
+    <SourceAssetBadge
+      v-if="source"
+      :source="source"
+      button-size="small"
+      button-variant="secondary"
+      button-class="workspace-utility-button"
+    />
+
+    <ThemedTooltip
+      v-if="isPromptGardenEnabled"
+      :label="t('common.promptGarden.title')"
+      placement="left"
+    >
+      <span class="workspace-utility-menu-trigger">
+        <NDropdown
+          trigger="click"
+          :options="gardenMenuOptions"
+          placement="bottom-end"
+          @select="handleGardenSelect"
+        >
+          <NButton
+            class="workspace-utility-button workspace-utility-button--garden"
+            size="small"
+            secondary
+            circle
+            :disabled="disabled"
+            data-testid="workspace-prompt-garden-menu"
+            :aria-label="t('common.promptGarden.title')"
+            title=""
+          >
+            <template #icon>
+              <NIcon>
+                <Plant2 />
+              </NIcon>
+            </template>
+          </NButton>
+        </NDropdown>
+      </span>
+    </ThemedTooltip>
+
+    <ThemedTooltip :label="t('common.workspaceTools')" placement="left">
+      <span class="workspace-utility-menu-trigger">
         <NDropdown
           trigger="click"
           :options="menuOptions"
@@ -13,7 +52,7 @@
           @select="handleSelect"
         >
           <NButton
-            class="workspace-utility-menu-button"
+            class="workspace-utility-button"
             size="small"
             secondary
             circle
@@ -30,9 +69,8 @@
           </NButton>
         </NDropdown>
       </span>
-    </template>
-    {{ t('common.workspaceTools') }}
-  </NTooltip>
+    </ThemedTooltip>
+  </div>
 
   <NModal
     v-model:show="showClearConfirm"
@@ -56,20 +94,37 @@
       </div>
     </div>
   </NModal>
+
+  <PromptGardenImportDialog
+    v-model:show="showPromptGardenImport"
+    :title="promptGardenImportDialogTitle"
+    :hint="promptGardenImportDialogHint"
+    @confirm="handleConfirmPromptGardenImport"
+  />
 </template>
 
 <script setup lang="ts">
-import { computed, h, nextTick, onMounted, onUnmounted, ref, type CSSProperties } from 'vue'
-import { NButton, NDropdown, NIcon, NModal, NTooltip, type DropdownOption } from 'naive-ui'
-import { ClearAll, DotsVertical } from '@vicons/tabler'
+import { computed, h, inject, nextTick, onMounted, onUnmounted, ref, type CSSProperties } from 'vue'
+import { routerKey, type LocationQueryRaw } from 'vue-router'
+import { NButton, NDropdown, NIcon, NModal, type DropdownOption } from 'naive-ui'
+import { Bookmark, ClearAll, DotsVertical, ExternalLink, Plant2, FileImport } from '@vicons/tabler'
 import { useI18n } from 'vue-i18n'
+import { getEnvVar } from '@prompt-optimizer/core'
+import SourceAssetBadge from '../source/SourceAssetBadge.vue'
+import PromptGardenImportDialog from './PromptGardenImportDialog.vue'
+import ThemedTooltip from './ThemedTooltip.vue'
+import { openExternalUrl } from '../../utils/open-external-url'
+import type { PromptGardenImportRequest } from '../../utils/prompt-garden-import'
+import type { SourceAssetRef } from '../../utils/source-asset'
 
 withDefaults(defineProps<{
   disabled?: boolean
   testId?: string
+  source?: SourceAssetRef | null
 }>(), {
   disabled: false,
   testId: undefined,
+  source: null,
 })
 
 const emit = defineEmits<{
@@ -77,17 +132,21 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const router = inject(routerKey, null)
 const showClearConfirm = ref(false)
+const showPromptGardenImport = ref(false)
+const promptGardenImportIntent = ref<'use' | 'favorite'>('use')
 const triggerStyle = ref<CSSProperties>({})
 let placementResizeObserver: ResizeObserver | null = null
 
-const tooltipThemeOverrides = computed(() => ({
-  color: 'var(--n-color)',
-  textColor: 'var(--n-text-color-2)',
-  borderRadius: '10px',
-  boxShadow: '0 6px 18px rgba(0, 0, 0, 0.10)',
-  padding: '6px 10px',
-}))
+const isPromptGardenEnabled = computed(() => {
+  const value = getEnvVar('VITE_ENABLE_PROMPT_GARDEN_IMPORT').trim().toLowerCase()
+  return value === '1' || value === 'true'
+})
+
+const promptGardenBaseUrl = computed(() => {
+  return getEnvVar('VITE_PROMPT_GARDEN_BASE_URL').trim().replace(/\/$/, '')
+})
 
 const updateTriggerPlacement = () => {
   if (typeof window === 'undefined') return
@@ -139,35 +198,132 @@ const menuOptions = computed<DropdownOption[]>(() => [
   },
 ])
 
+const gardenMenuOptions = computed<DropdownOption[]>(() => [
+  {
+    key: 'discover',
+    label: t('common.promptGarden.discover'),
+    icon: () => h(NIcon, null, { default: () => h(ExternalLink) }),
+  },
+  {
+    key: 'import-code',
+    label: t('common.promptGarden.importPrompt'),
+    icon: () => h(NIcon, null, { default: () => h(FileImport) }),
+  },
+  {
+    key: 'import-favorite',
+    label: t('common.promptGarden.importFavorite'),
+    icon: () => h(NIcon, null, { default: () => h(Bookmark) }),
+  },
+])
+
+const promptGardenImportDialogTitle = computed(() =>
+  promptGardenImportIntent.value === 'favorite'
+    ? t('common.promptGarden.importFavoriteTitle')
+    : t('common.promptGarden.importTitle'),
+)
+
+const promptGardenImportDialogHint = computed(() =>
+  promptGardenImportIntent.value === 'favorite'
+    ? t('common.promptGarden.importFavoriteHint')
+    : t('common.promptGarden.importHint'),
+)
+
 const handleSelect = (key: string) => {
   if (key === 'clear-content') {
     showClearConfirm.value = true
   }
 }
 
+const handleGardenSelect = (key: string) => {
+  if (key === 'discover') {
+    void openExternalUrl(promptGardenBaseUrl.value, { logPrefix: 'PromptGarden' })
+    return
+  }
+
+  if (key === 'import-code') {
+    promptGardenImportIntent.value = 'use'
+    showPromptGardenImport.value = true
+  }
+
+  if (key === 'import-favorite') {
+    promptGardenImportIntent.value = 'favorite'
+    showPromptGardenImport.value = true
+  }
+}
+
 const handleConfirmClear = () => {
   emit('clear')
+}
+
+const handleConfirmPromptGardenImport = async (request: PromptGardenImportRequest) => {
+  if (!request.importCode || !router) return false
+
+  const currentRoute = router.currentRoute.value
+  const query: LocationQueryRaw = {
+    ...currentRoute.query,
+    importCode: request.importCode,
+  }
+
+  if (promptGardenImportIntent.value === 'favorite') {
+    query.saveToFavorites = 'confirm'
+    delete query.exampleId
+  } else {
+    delete query.saveToFavorites
+    if (request.exampleId) {
+      query.exampleId = request.exampleId
+    } else {
+      delete query.exampleId
+    }
+  }
+
+  if (request.subModeKey) {
+    query.subModeKey = request.subModeKey
+  } else {
+    delete query.subModeKey
+  }
+
+  await router.push({
+    path: currentRoute.path,
+    query,
+  })
+
+  showPromptGardenImport.value = false
+  return true
 }
 </script>
 
 <style scoped>
-.workspace-utility-menu-trigger {
-  display: inline-flex;
+.workspace-utility-button-column {
+  display: flex;
   position: fixed;
   z-index: 20;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
 }
 
-.workspace-utility-menu-button {
+.workspace-utility-menu-trigger {
+  display: inline-flex;
+}
+
+.workspace-utility-button,
+:deep(.workspace-utility-button) {
   color: var(--n-text-color-3);
   border: 1px solid transparent;
   background: transparent;
   box-shadow: none;
 }
 
-.workspace-utility-menu-button:hover {
+.workspace-utility-button:hover,
+:deep(.workspace-utility-button:hover) {
   color: var(--n-primary-color);
   border-color: color-mix(in srgb, var(--n-primary-color) 24%, transparent);
   background: color-mix(in srgb, var(--n-primary-color) 8%, transparent);
+}
+
+.workspace-utility-button--garden,
+:deep(.workspace-utility-button--garden) {
+  color: color-mix(in srgb, var(--n-success-color) 82%, var(--n-text-color-3));
 }
 
 .workspace-clear-content-confirm {
@@ -192,4 +348,5 @@ const handleConfirmClear = () => {
 .workspace-clear-content-confirm-row span {
   color: var(--n-text-color-2);
 }
+
 </style>

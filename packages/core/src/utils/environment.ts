@@ -2,8 +2,13 @@
  * Utility functions for environment detection and configuration.
  */
 
+import { getDefaultEnvVar } from './default-env'
+import { normalizeCustomRequestHeaders, validateCustomRequestHeaders } from './custom-request-headers'
+
+export { DEFAULT_VITE_ENV, getDefaultEnvVar } from './default-env'
+
 // 常量定义
-export const CUSTOM_API_PATTERN = /^VITE_CUSTOM_API_(KEY|BASE_URL|MODEL|PARAMS)_(.+)$/;
+export const CUSTOM_API_PATTERN = /^VITE_CUSTOM_API_(KEY|BASE_URL|MODEL|PARAMS|HEADERS)_(.+)$/;
 export const SUFFIX_PATTERN = /^[a-zA-Z0-9_-]+$/;
 export const MAX_SUFFIX_LENGTH = 50;
 const FORBIDDEN_CUSTOM_PARAM_KEYS = new Set(['model', 'messages', 'stream']);
@@ -27,6 +32,8 @@ export interface CustomModelEnvConfig {
   model?: string;
   /** 额外请求参数（JSON 字符串，可选） */
   params?: string;
+  /** 自定义请求头（JSON 字符串，可选） */
+  headers?: string;
 }
 
 /**
@@ -44,6 +51,8 @@ export interface ValidatedCustomModelEnvConfig {
   model: string;
   /** 已解析的额外请求参数（可选） */
   params?: Record<string, unknown>;
+  /** 已解析的自定义请求头（可选） */
+  customHeaders?: Record<string, string>;
 }
 
 /**
@@ -140,6 +149,29 @@ function parseCustomModelParams(rawParams: string, suffix: string): Record<strin
     return sanitizedParams;
   } catch (error) {
     console.warn(`[scanCustomModelEnvVars] Failed to parse PARAMS for ${suffix}:`, error);
+    return undefined;
+  }
+}
+
+function parseCustomModelHeaders(rawHeaders: string, suffix: string): Record<string, string> | undefined {
+  try {
+    const parsed = JSON.parse(rawHeaders);
+
+    if ((typeof parsed !== 'object' || parsed === null)) {
+      console.warn(`[scanCustomModelEnvVars] Invalid HEADERS for ${suffix}: must be a JSON object or array`);
+      return undefined;
+    }
+
+    const validation = validateCustomRequestHeaders(parsed as any);
+    if (!validation.valid) {
+      const details = validation.errors.map(error => `${error.key} (${error.reason})`).join(', ');
+      console.warn(`[scanCustomModelEnvVars] Ignored invalid HEADERS for ${suffix}: ${details}`);
+      return undefined;
+    }
+
+    return normalizeCustomRequestHeaders(parsed as any);
+  } catch (error) {
+    console.warn(`[scanCustomModelEnvVars] Failed to parse HEADERS for ${suffix}:`, error);
     return undefined;
   }
 }
@@ -264,7 +296,7 @@ export const getEnvVar = (key: string): string => {
   if (typeof window !== 'undefined' && window.runtime_config) {
     // 移除 VITE_ 前缀以匹配运行时配置中的键名
     const runtimeKey = key.replace('VITE_', '');
-    const value = window.runtime_config[runtimeKey];
+    const value = window.runtime_config[runtimeKey] ?? window.runtime_config[key];
     if (value !== undefined && value !== null) {
       return String(value);
     }
@@ -287,7 +319,11 @@ export const getEnvVar = (key: string): string => {
     // 忽略错误
   }
 
-  // 4. 最后返回空字符串
+  // 4. 产品内建默认值（覆盖 web / extension / desktop 缺省打包场景）
+  const defaultValue = getDefaultEnvVar(key);
+  if (defaultValue) return defaultValue;
+
+  // 5. 最后返回空字符串
   return '';
 };
 
@@ -368,7 +404,8 @@ export function scanCustomModelEnvVars(useCache: boolean = true): Record<string,
           apiKey: undefined,
           baseURL: undefined,
           model: undefined,
-          params: undefined
+          params: undefined,
+          headers: undefined
         };
       }
 
@@ -385,6 +422,9 @@ export function scanCustomModelEnvVars(useCache: boolean = true): Record<string,
           break;
         case 'PARAMS':
           customModels[suffix].params = value;
+          break;
+        case 'HEADERS':
+          customModels[suffix].headers = value;
           break;
         default:
           console.warn(`[scanCustomModelEnvVars] Unknown config type: ${configType} in ${key}`);
@@ -410,6 +450,13 @@ export function scanCustomModelEnvVars(useCache: boolean = true): Record<string,
         const parsedParams = parseCustomModelParams(config.params, suffix);
         if (parsedParams !== undefined) {
           validatedConfig.params = parsedParams;
+        }
+      }
+
+      if (config.headers) {
+        const parsedHeaders = parseCustomModelHeaders(config.headers, suffix);
+        if (parsedHeaders !== undefined) {
+          validatedConfig.customHeaders = parsedHeaders;
         }
       }
 

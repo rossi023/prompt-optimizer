@@ -2,10 +2,11 @@
   <div class="image-multiimage-workspace" data-testid="workspace" data-mode="image-multiimage">
     <div class="workspace-page-tools">
       <WorkspaceUtilityMenu
-        :disabled="optimizing || isIterating || isAnyVariantRunning"
-        test-id="image-multiimage-workspace-utility-menu"
-        @clear="handleClearContent"
-      />
+          :disabled="optimizing || isIterating || isAnyVariantRunning"
+          :source="resolveSourceAssetRef(session.origin, session.assetBinding)"
+          test-id="image-multiimage-workspace-utility-menu"
+          @clear="handleClearContent"
+        />
     </div>
     <div
       ref="splitRootRef"
@@ -18,7 +19,12 @@
           size="medium"
           :style="{ overflow: 'auto', height: '100%', minHeight: 0 }"
         >
-          <NCard :style="{ flexShrink: 0 }">
+          <TestSourceLinkedCard
+            :style="{ flexShrink: 0 }"
+            :feedback-key="sourceAreaFeedback.original.key"
+            :feedback-tone="sourceAreaFeedback.original.tone"
+            :source-tone="sourceAreaFeedback.original.sourceTone"
+          >
             <NFlex
               v-if="isInputPanelCollapsed"
               justify="space-between"
@@ -213,9 +219,17 @@
               <NGrid :cols="24" :x-gap="8" responsive="screen">
                 <NGridItem :span="7" :xs="24" :sm="7">
                   <NSpace vertical :size="8">
-                    <NText :depth="2" style="font-size: 14px; font-weight: 500;">
-                      {{ t('imageWorkspace.input.textModel') }}
-                    </NText>
+                    <NFlex align="center" :size="6" :wrap="false">
+                      <NText :depth="2" style="font-size: 14px; font-weight: 500; flex-shrink: 0;">
+                        {{ t('imageWorkspace.input.textModel') }}
+                      </NText>
+                      <TextModelQuickSwitch
+                        :model-key="selectedTextModelKey"
+                        :options="textModelOptions"
+                        :refresh-models="modelSelection.refreshTextModels"
+                        :disabled="optimizing || isIterating"
+                      />
+                    </NFlex>
                     <SelectWithConfig
                       data-testid="image-multiimage-text-model-select"
                       v-model="selectedTextModelKey"
@@ -262,11 +276,21 @@
                 <NGridItem :span="6" :xs="24" :sm="6" class="flex items-end justify-end">
                   <NSpace :size="8">
                     <NButton
+                      type="default"
+                      size="medium"
+                      data-testid="image-multiimage-analyze-button"
+                      :loading="isAnalyzing"
+                      :disabled="isAnalyzing || optimizing || isIterating || !originalPrompt.trim()"
+                      @click="handleAnalyzePrompt"
+                    >
+                      {{ isAnalyzing ? t('promptOptimizer.analyzing') : t('promptOptimizer.analyze') }}
+                    </NButton>
+                    <NButton
                       type="primary"
                       size="medium"
                       data-testid="image-multiimage-optimize"
                       :loading="optimizing"
-                      :disabled="optimizing || isIterating || !canOptimize"
+                      :disabled="isAnalyzing || optimizing || isIterating || !canOptimize"
                       @click="optimizePrompt"
                     >
                       {{ optimizing ? t('imageWorkspace.input.optimizing') : t('common.optimize') }}
@@ -275,11 +299,14 @@
                 </NGridItem>
               </NGrid>
             </NSpace>
-          </NCard>
+          </TestSourceLinkedCard>
 
-          <NCard
+          <TestSourceLinkedCard
             :style="{ flex: 1, minHeight: '200px', overflow: 'hidden' }"
             content-style="height: 100%; max-height: 100%; overflow: hidden;"
+            :feedback-key="sourceAreaFeedback.workspace.key"
+            :feedback-tone="sourceAreaFeedback.workspace.tone"
+            :source-tone="sourceAreaFeedback.workspace.sourceTone"
           >
             <PromptPanelUI
               v-if="services && services.templateManager"
@@ -293,18 +320,24 @@
               v-model:selected-iterate-template="selectedIterateTemplate"
               :versions="currentVersions"
               :current-version-id="currentVersionId"
+              :source-feedback-key="sourceAreaFeedback.workspace.key"
+              :source-feedback-tone="sourceAreaFeedback.workspace.tone"
+              :source-feedback-version="sourceAreaFeedback.workspace.resolvedVersion"
               :optimization-mode="optimizationMode"
               :advanced-mode-enabled="advancedModeEnabled"
               :show-preview="true"
+              evaluation-type-override="prompt-only"
               iterate-template-type="imageIterate"
               @iterate="handleIteratePrompt"
               @openTemplateManager="onOpenTemplateManager"
               @switchVersion="handleSwitchVersion"
               @save-favorite="handleSaveFavorite"
               @save-local-edit="handleSaveLocalEdit"
+              @apply-improvement="handleApplyImprovement"
+              @apply-patch="handleApplyPatch"
               @open-preview="handleOpenPromptPreview"
             />
-          </NCard>
+          </TestSourceLinkedCard>
         </NFlex>
       </div>
 
@@ -361,9 +394,22 @@
                   :class="{ 'variant-cell__controls--stacked': useStackedVariantControls }"
                 >
                   <div class="variant-cell__meta">
-                    <NTag size="small" :bordered="false" class="variant-cell__label">
-                      {{ getVariantLabel(id) }}
-                    </NTag>
+                    <TestVariantSourceTag
+                      class="variant-cell__label"
+                      :variant-label="getVariantLabel(id)"
+                      :selection="variantVersionModels[id].value"
+                      :resolved-version="getVariantResolvedVersion(id)"
+                      :labels="getTestPanelVersionLabels()"
+                      :feedback-key="variantSourceFeedback[id].key"
+                      :feedback-tone="variantSourceFeedback[id].tone"
+                      @activate="activateVariantSource(id)"
+                    />
+                    <ImageModelQuickSwitch
+                      :model-key="variantModelKeyModels[id].value"
+                      :options="imageModelOptions"
+                      :refresh-models="refreshImageModelsHandler"
+                      :disabled="variantRunning[id]"
+                    />
                   </div>
 
                   <div class="variant-cell__actions">
@@ -372,7 +418,7 @@
                       :options="versionOptions"
                       :disabled="variantRunning[id]"
                       :test-id="getVariantVersionTestId(id)"
-                      @update:value="(value) => { variantVersionModels[id].value = value as TestPanelVersionValue }"
+                      @update:value="(value) => handleVariantVersionChange(id, value)"
                     />
 
                     <div class="variant-cell__model">
@@ -404,28 +450,25 @@
                     </div>
 
                     <div class="variant-cell__run">
-                      <NTooltip trigger="hover">
-                        <template #trigger>
-                          <span class="variant-cell__run-trigger">
-                            <NButton
-                              type="primary"
-                              size="small"
-                              circle
-                              :loading="variantRunning[id]"
-                              :disabled="variantRunning[id] || isVariantModelUnsupported(id)"
-                              :data-testid="getVariantRunTestId(id)"
-                              @click="runVariant(id)"
-                            >
-                              <template #icon>
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
-                                  <path d="M8 5v14l11-7z" />
-                                </svg>
-                              </template>
-                            </NButton>
-                          </span>
-                        </template>
-                        {{ getVariantRunTooltip(id) }}
-                      </NTooltip>
+                      <ThemedTooltip :label="getVariantRunTooltip(id)">
+                        <span class="variant-cell__run-trigger">
+                          <NButton
+                            type="primary"
+                            size="small"
+                            circle
+                            :loading="variantRunning[id]"
+                            :disabled="variantRunning[id] || isVariantModelUnsupported(id)"
+                            :data-testid="getVariantRunTestId(id)"
+                            @click="runVariant(id)"
+                          >
+                            <template #icon>
+                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+                                <path d="M8 5v14l11-7z" />
+                              </svg>
+                            </template>
+                          </NButton>
+                        </span>
+                      </ThemedTooltip>
                     </div>
                   </div>
                 </div>
@@ -446,6 +489,18 @@
                   <div class="result-body">
                   <template v-if="hasVariantResult(id)">
                     <NSpace vertical :size="12" style="padding: 12px;">
+                      <NFlex justify="end" align="center">
+                        <SaveTestResultExampleButton
+                          sub-mode-key="image-multiimage"
+                          :variant-id="id"
+                          :content="optimizedPrompt || originalPrompt"
+                          :original-content="originalPrompt"
+                          function-mode="image"
+                          image-sub-mode="multiimage"
+                          :disabled="variantRunning[id]"
+                          :test-id="`save-test-example-image-multiimage-${id}`"
+                        />
+                      </NFlex>
                       <AppPreviewImage
                         v-if="getVariantResult(id)?.images?.[0]"
                         :data-testid="getVariantImageTestId(id)"
@@ -504,6 +559,29 @@
       </div>
     </div>
 
+    <EvaluationPanel
+      v-model:show="evaluation.isPanelVisible.value"
+      :is-evaluating="panelProps.isEvaluating"
+      :result="panelProps.result"
+      :stream-content="panelProps.streamContent"
+      :error="panelProps.error"
+      :current-type="panelProps.currentType"
+      :score-level="panelProps.scoreLevel"
+      :rewrite-recommendation="panelProps.rewriteRecommendation"
+      :rewrite-reasons="panelProps.rewriteReasons"
+      :stale="activeEvaluationStale"
+      :stale-message="activeEvaluationStaleMessage"
+      :disable-evaluate="activeEvaluationDisableEvaluate"
+      :disable-evaluate-reason="activeEvaluationDisableReason"
+      :can-rewrite-from-evaluation="false"
+      @apply-local-patch="handleApplyPatch"
+      @apply-improvement="handleApplyImprovement"
+      @re-evaluate="handleReEvaluateActive"
+      @evaluate-with-feedback="handleEvaluateActiveWithFeedback"
+      @clear="handleClearEvaluation"
+      @retry="handleReEvaluateActive"
+    />
+
     <FullscreenDialog
       v-model="isFullscreen"
       :title="t('imageWorkspace.input.originalPrompt')"
@@ -539,10 +617,23 @@
 </template>
 
 <script setup lang="ts">
-import { computed, inject, nextTick, onMounted, onUnmounted, reactive, ref, watch, type Ref } from 'vue'
-import { NButton, NCard, NEmpty, NFlex, NGrid, NGridItem, NIcon, NInput, NRadioButton, NRadioGroup, NSpace, NTag, NText, NTooltip } from 'naive-ui'
+import { computed, inject, nextTick, onMounted, onUnmounted, reactive, ref, watch, toRef, type Ref } from 'vue'
+import { NButton, NCard, NEmpty, NFlex, NGrid, NGridItem, NIcon, NInput, NRadioButton, NRadioGroup, NSpace, NText } from 'naive-ui'
 import { useI18n } from 'vue-i18n'
-import type { ContextMode, ImageInputRef, ImageModelConfig, ImageResult, ImageResultItem, MultiImageGenerationRequest, OptimizationMode, PromptRecordChain, PromptRecordType, Template } from '@prompt-optimizer/core'
+import {
+  applyPatchOperationsToText,
+  type ContextMode,
+  type ImageInputRef,
+  type ImageModelConfig,
+  type ImageResult,
+  type ImageResultItem,
+  type MultiImageGenerationRequest,
+  type OptimizationMode,
+  type PatchOperation,
+  type PromptRecordChain,
+  type PromptRecordType,
+  type Template,
+} from '@prompt-optimizer/core'
 import type { AppServices } from '../../types/services'
 import { useImageMultiImageSession, type TestColumnCount, type TestPanelVersionValue, type TestVariantId } from '../../stores/session/useImageMultiImageSession'
 import { useImageGeneration } from '../../composables/image/useImageGeneration'
@@ -552,6 +643,11 @@ import { useVariableAwareInputBridge } from '../../composables/variable/useVaria
 import { useSmartVariableValueGeneration } from '../../composables/variable/useSmartVariableValueGeneration'
 import { useToast } from '../../composables/ui/useToast'
 import { useFullscreen } from '../../composables/ui/useFullscreen'
+import { useEvaluationHandler } from '../../composables/prompt/useEvaluationHandler'
+import { provideEvaluation } from '../../composables/prompt/useEvaluationContext'
+import { useTestSourceAreaFeedback } from '../../composables/prompt/useTestSourceAreaFeedback'
+import { useTestVariantSourceFeedback } from '../../composables/prompt/useTestVariantSourceFeedback'
+import { useFunctionModelManager } from '../../composables/model'
 import { useWorkspaceTextModelSelection } from '../../composables/workspaces/useWorkspaceTextModelSelection'
 import { useWorkspaceTemplateSelection } from '../../composables/workspaces/useWorkspaceTemplateSelection'
 import { useElementSize } from '@vueuse/core'
@@ -562,19 +658,29 @@ import { buildTestPanelVersionOptions, resolveTestPanelVersionSelection } from '
 import { buildMultiImageVariantFingerprint } from '../../utils/multiimage-workspace'
 import { downloadImageSource } from '../../utils/image-download'
 import { getI18nErrorMessage } from '../../utils/error'
+import { withHistorySourceBindingMetadata } from '../../utils/history-source-binding'
+import { createImagePromptAnalysisVersion } from '../../utils/imagePromptAnalysis'
+import { resolveSourceAssetRef } from '../../utils/source-asset'
 import { OptionAccessors } from '../../utils/data-transformer'
 import type { VariableManagerHooks } from '../../composables/prompt/useVariableManager'
 import PromptPanelUI from '../PromptPanel.vue'
 import PromptPreviewPanel from '../PromptPreviewPanel.vue'
+import ImageModelQuickSwitch from '../ImageModelQuickSwitch.vue'
 import SelectWithConfig from '../SelectWithConfig.vue'
+import TextModelQuickSwitch from '../TextModelQuickSwitch.vue'
+import TestSourceLinkedCard from '../TestSourceLinkedCard.vue'
+import TestVariantSourceTag from '../TestVariantSourceTag.vue'
 import FullscreenDialog from '../FullscreenDialog.vue'
 import AppPreviewImage from '../media/AppPreviewImage.vue'
 import { VariableAwareInput } from '../variable-extraction'
 import TemporaryVariablesPanel from '../variable/TemporaryVariablesPanel.vue'
 import WorkspaceUtilityMenu from '../common/WorkspaceUtilityMenu.vue'
+import ThemedTooltip from '../common/ThemedTooltip.vue'
 import VariableValuePreviewDialog from '../variable/VariableValuePreviewDialog.vue'
 import TestPanelVersionSelect from '../TestPanelVersionSelect.vue'
 import ImageTokenUsage from './ImageTokenUsage.vue'
+import SaveTestResultExampleButton from '../SaveTestResultExampleButton.vue'
+import { EvaluationPanel } from '../evaluation'
 
 const { t } = useI18n()
 const toast = useToast()
@@ -608,6 +714,7 @@ const {
 
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const optimizing = ref(false)
+const isAnalyzing = ref(false)
 const isIterating = ref(false)
 const splitRootRef = ref<HTMLElement | null>(null)
 const testPaneRef = ref<HTMLElement | null>(null)
@@ -616,6 +723,11 @@ const currentChainId = ref('')
 const currentVersions = ref<PromptRecordChain['versions']>([])
 const currentVersionId = ref('')
 const variantRunning = reactive<Record<TestVariantId, boolean>>({ a: false, b: false, c: false, d: false })
+
+const { variantSourceFeedback, pulseVariantSource } =
+  useTestVariantSourceFeedback<TestVariantId>(['a', 'b', 'c', 'd'])
+const { sourceAreaFeedback, pulseSourceAreaForSelection } =
+  useTestSourceAreaFeedback()
 
 const temporaryVariablePanelManager = useTestVariableManager({
   globalVariables: computed(() => variableManager?.customVariables.value || {}),
@@ -684,6 +796,7 @@ const optimizedReasoning = computed<string>({
 const modelSelection = useWorkspaceTextModelSelection(services, session)
 const selectedTextModelKey = modelSelection.selectedTextModelKey
 const textModelOptions = modelSelection.textModelOptions
+const functionModelManager = useFunctionModelManager(services)
 
 const templateSelection = useWorkspaceTemplateSelection(
   services,
@@ -694,6 +807,98 @@ const templateSelection = useWorkspaceTemplateSelection(
 const selectedTemplate = templateSelection.selectedTemplate
 const templateOptions = templateSelection.templateOptions
 const selectedTemplateId = templateSelection.selectedTemplateId
+
+const evaluationHandler = useEvaluationHandler({
+  services,
+  analysisOptimizedPrompt: computed(() => optimizedPrompt.value || ''),
+  analysisTargetResolver: (defaultTarget) => ({
+    ...defaultTarget,
+    referencePrompt: (originalPrompt.value || '').trim() || undefined,
+  }),
+  evaluationModelKey: computed(() => selectedTextModelKey.value || ''),
+  resolveEvaluationModelKey: async () => {
+    await functionModelManager.initialize()
+    return (
+      functionModelManager.evaluationModel.value ||
+      selectedTextModelKey.value ||
+      functionModelManager.effectiveEvaluationModel.value ||
+      ''
+    )
+  },
+  functionMode: computed(() => 'image'),
+  subMode: computed(() => 'multiimage'),
+  persistedResults: toRef(session, 'evaluationResults'),
+})
+
+provideEvaluation(evaluationHandler.evaluation)
+
+const { evaluation, handleEvaluate: handleEvaluateInternal } = evaluationHandler
+const panelProps = evaluationHandler.panelProps
+
+const activeEvaluationStale = computed(() => false)
+const activeEvaluationStaleMessage = computed(() => t('evaluation.stale.promptOnly'))
+const activeEvaluationDisableEvaluate = computed(() =>
+  panelProps.value.currentType === 'prompt-only' &&
+  !optimizedPrompt.value.trim(),
+)
+const activeEvaluationDisableReason = computed(() => '')
+
+const handleAnalyzePrompt = async () => {
+  const prompt = originalPrompt.value.trim()
+  if (!prompt || isAnalyzing.value) return
+
+  isAnalyzing.value = true
+  try {
+    const virtualV0 = createImagePromptAnalysisVersion(
+      prompt,
+      'multiimageOptimize' as PromptRecordType,
+    )
+    currentChainId.value = ''
+    currentVersions.value = [virtualV0]
+    currentVersionId.value = virtualV0.id
+    session.updateOptimizedResult({
+      optimizedPrompt: prompt,
+      reasoning: '',
+      chainId: '',
+      versionId: '',
+    })
+    evaluation.clearResult('prompt-only')
+    evaluation.clearResult('prompt-iterate')
+    await nextTick()
+    await handleEvaluateInternal('prompt-only')
+  } finally {
+    isAnalyzing.value = false
+  }
+}
+
+const handleReEvaluateActive = async () => {
+  if (!evaluation.state.activeDetail) return
+  await evaluationHandler.handleReEvaluate()
+}
+
+const handleEvaluateActiveWithFeedback = async (payload: { feedback: string }) => {
+  if (!evaluation.state.activeDetail) return
+  await evaluationHandler.handleEvaluateActiveWithFeedback(payload.feedback)
+}
+
+const handleClearEvaluation = () => {
+  evaluation.closePanel()
+  evaluation.clearAllResults()
+}
+
+const handleApplyImprovement = evaluationHandler.createApplyImprovementHandler(promptPanelRef)
+
+const handleApplyPatch = (payload: { operation: PatchOperation }) => {
+  if (!payload.operation) return
+  const current = optimizedPrompt.value || ''
+  const result = applyPatchOperationsToText(current, payload.operation)
+  if (!result.ok) {
+    toast.warning(t('toast.warning.patchApplyFailed'))
+    return
+  }
+  optimizedPrompt.value = result.text
+  toast.success(t('evaluation.diagnose.applyFix'))
+}
 
 const selectedIterateTemplate = computed<Template | null>({
   get: () => templateSelection.selectedIterateTemplate.value,
@@ -843,6 +1048,19 @@ const variantModelKeyModels = { a: createVariantModelKeyModel('a'), b: createVar
 
 const getVariantLabel = (id: TestVariantId) => ({ a: 'A', b: 'B', c: 'C', d: 'D' }[id])
 
+const handleVariantVersionChange = (id: TestVariantId, value: string | number) => {
+  const selection = value as TestPanelVersionValue
+  variantVersionModels[id].value = selection
+  activateVariantSource(id)
+}
+
+const activateVariantSource = (id: TestVariantId) => {
+  const selection = variantVersionModels[id].value
+  const resolved = resolvePromptForSelection(selection)
+  pulseVariantSource(id, 'change')
+  pulseSourceAreaForSelection(selection, resolved.resolvedVersion, 'change')
+}
+
 const imageModelConfigMap = computed(() => {
   const map = new Map<string, ImageModelConfig>()
   for (const config of imageModels.value) {
@@ -953,12 +1171,14 @@ const getVariantInputImagesInfo = (id: TestVariantId): VariantInputImageInfo[] =
   return infos
 }
 
-const versionOptions = computed(() =>
-  buildTestPanelVersionOptions(currentVersions.value || [], {
+const getTestPanelVersionLabels = () => ({
     workspace: t('test.layout.workspace'),
     previous: t('test.layout.previous'),
     original: t('test.layout.original'),
-  }, {
+})
+
+const versionOptions = computed(() =>
+  buildTestPanelVersionOptions(currentVersions.value || [], getTestPanelVersionLabels(), {
     currentVersionId: currentVersionId.value,
     workspacePrompt: session.optimizedPrompt || '',
     originalPrompt: session.originalPrompt || '',
@@ -987,6 +1207,16 @@ const queueSessionSave = () => {
   sessionSaveChain = sessionSaveChain.then(() => session.saveSession()).catch((error) => {
     console.error('[ImageMultiImageWorkspace] Failed to persist image session:', error)
   })
+  return sessionSaveChain
+}
+
+const saveSessionAfterHistoryCommit = async (reason: string) => {
+  try {
+    await session.saveSession()
+  } catch (error) {
+    console.error(`[ImageMultiImageWorkspace] Failed to persist image session after ${reason}:`, error)
+    toast.warning(t('toast.warning.saveHistoryFailed'))
+  }
 }
 
 watch(
@@ -1251,13 +1481,13 @@ const createHistoryRecord = async () => {
     modelKey: selectedTextModelKey.value,
     templateId: selectedTemplate.value.id,
     timestamp: Date.now(),
-    metadata: {
+    metadata: withHistorySourceBindingMetadata({
       optimizationMode: 'user' as OptimizationMode,
       functionMode: 'image',
       imageModelKey: session.selectedImageModelKey,
       inputImageCount: session.inputImages.length,
       compareMode: session.isCompareMode,
-    },
+    }, session),
   })
 
   currentChainId.value = chain.chainId
@@ -1269,6 +1499,7 @@ const createHistoryRecord = async () => {
     chainId: chain.chainId,
     versionId: chain.currentRecord.id,
   })
+  await saveSessionAfterHistoryCommit('optimization commit')
 }
 
 const optimizePrompt = async () => {
@@ -1359,13 +1590,13 @@ const handleIteratePrompt = async (payload: {
                 iterationNote: payload.iterateInput,
                 modelKey: selectedTextModelKey.value,
                 templateId: selectedIterateTemplate.value!.id,
-                metadata: {
+                metadata: withHistorySourceBindingMetadata({
                   optimizationMode: 'user' as OptimizationMode,
                   functionMode: 'image',
                   imageModelKey: session.selectedImageModelKey,
                   inputImageCount: session.inputImages.length,
                   compareMode: session.isCompareMode,
-                },
+                }, session),
               })
               currentChainId.value = updatedChain.chainId
               currentVersions.value = updatedChain.versions
@@ -1376,6 +1607,7 @@ const handleIteratePrompt = async (payload: {
                 chainId: updatedChain.chainId,
                 versionId: updatedChain.currentRecord.id,
               })
+              await saveSessionAfterHistoryCommit('iteration commit')
             } else {
               await createHistoryRecord()
             }
@@ -1442,7 +1674,7 @@ const handleSaveLocalEdit = async (payload: { note?: string }) => {
           modelKey,
           templateId,
           iterationNote: payload.note,
-          metadata: {
+          metadata: withHistorySourceBindingMetadata({
             optimizationMode: 'user' as OptimizationMode,
             functionMode: 'image',
             localEdit: true,
@@ -1450,7 +1682,7 @@ const handleSaveLocalEdit = async (payload: { note?: string }) => {
             imageModelKey: session.selectedImageModelKey,
             inputImageCount: session.inputImages.length,
             compareMode: session.isCompareMode,
-          },
+          }, session),
         })
       : await historyManager.value.createNewChain({
           id: createRecordId(),
@@ -1460,7 +1692,7 @@ const handleSaveLocalEdit = async (payload: { note?: string }) => {
           modelKey,
           templateId,
           timestamp: Date.now(),
-          metadata: {
+          metadata: withHistorySourceBindingMetadata({
             optimizationMode: 'user' as OptimizationMode,
             functionMode: 'image',
             localEdit: true,
@@ -1468,7 +1700,7 @@ const handleSaveLocalEdit = async (payload: { note?: string }) => {
             imageModelKey: session.selectedImageModelKey,
             inputImageCount: session.inputImages.length,
             compareMode: session.isCompareMode,
-          },
+          }, session),
         })
 
     currentChainId.value = chain.chainId
@@ -1480,6 +1712,7 @@ const handleSaveLocalEdit = async (payload: { note?: string }) => {
       chainId: chain.chainId,
       versionId: chain.currentRecord.id,
     })
+    await saveSessionAfterHistoryCommit('local edit commit')
 
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('prompt-optimizer:history-refresh'))
@@ -1510,6 +1743,9 @@ const resolvePromptForSelection = (selection: TestPanelVersionValue) =>
     originalPrompt: session.originalPrompt || '',
   })
 
+const getVariantResolvedVersion = (id: TestVariantId): number =>
+  resolvePromptForSelection(variantVersionModels[id].value).resolvedVersion
+
 const getVariantRequest = (id: TestVariantId) => {
   const modelKey = (variantModelKeyModels[id].value || '').trim()
   if (!modelKey) {
@@ -1524,6 +1760,8 @@ const getVariantRequest = (id: TestVariantId) => {
   const resolved = resolvePromptForSelection(variantVersionModels[id].value)
   if (!resolved.text?.trim()) {
     toast.error(t('imageWorkspace.generation.missingRequiredFields'))
+    pulseVariantSource(id, 'error')
+    pulseSourceAreaForSelection(variantVersionModels[id].value, resolved.resolvedVersion, 'error')
     return null
   }
   const varsForRequest = {
